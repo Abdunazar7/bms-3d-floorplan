@@ -19,6 +19,10 @@ export interface BuiltFloor {
   group: THREE.Group;
   /** Map of furniture id -> Object3D, for binding anchors. */
   furnitureById: Map<string, THREE.Object3D>;
+  /** Map of wall array-index -> wall sub-group (for editor selection). */
+  wallById: Map<number, THREE.Object3D>;
+  /** Map of room array-index -> floor mesh (for editor selection). */
+  roomById: Map<number, THREE.Object3D>;
   /** Bounding box of this floor in world space. */
   bbox: THREE.Box3;
   labels: TextLabel[];
@@ -61,13 +65,22 @@ function addWallSpan(
   group.add(mesh);
 }
 
-function buildWall(group: THREE.Group, wall: WallDef, defaultHeight: number): void {
+function buildWall(
+  parent: THREE.Group,
+  wall: WallDef,
+  defaultHeight: number,
+  index: number,
+): THREE.Group | null {
   const start = new THREE.Vector2(wall.start[0], wall.start[1]);
   const end = new THREE.Vector2(wall.end[0], wall.end[1]);
   const full = end.clone().sub(start);
   const length = full.length();
-  if (length <= 1e-4) return;
+  if (length <= 1e-4) return null;
   const dir = full.clone().normalize();
+  // Each wall's spans live in their own group so the editor can pick/select/
+  // color/delete the whole wall as a unit.
+  const group = new THREE.Group();
+  group.userData.wallIndex = index;
   // Rotation so a box's local X aligns with the wall direction (in XZ plane).
   const angle = Math.atan2(dir.y, dir.x);
   const normalAngle = -angle;
@@ -97,9 +110,16 @@ function buildWall(group: THREE.Group, wall: WallDef, defaultHeight: number): vo
   }
   // Remaining solid wall after the last opening.
   addWallSpan(group, start, dir, normalAngle, cursor, length, 0, height, thickness, material);
+
+  parent.add(group);
+  return group;
 }
 
-function buildFloor(group: THREE.Group, room: RoomDef): THREE.Vector2 | null {
+function buildFloor(
+  group: THREE.Group,
+  room: RoomDef,
+  index: number,
+): { centroid: THREE.Vector2; mesh: THREE.Mesh } | null {
   if (!room.polygon || room.polygon.length < 3) return null;
   const shape = new THREE.Shape();
   room.polygon.forEach((p, i) => {
@@ -121,6 +141,7 @@ function buildFloor(group: THREE.Group, room: RoomDef): THREE.Vector2 | null {
   );
   mesh.position.y = 0.005;
   mesh.receiveShadow = true;
+  mesh.userData.roomIndex = index;
   group.add(mesh);
 
   // centroid for label
@@ -129,7 +150,10 @@ function buildFloor(group: THREE.Group, room: RoomDef): THREE.Vector2 | null {
     cx += p[0];
     cz += p[1];
   }
-  return new THREE.Vector2(cx / room.polygon.length, cz / room.polygon.length);
+  return {
+    centroid: new THREE.Vector2(cx / room.polygon.length, cz / room.polygon.length),
+    mesh,
+  };
 }
 
 export function buildFloorGroup(floor: FloorDef, planWallHeight?: number): BuiltFloor {
@@ -137,21 +161,27 @@ export function buildFloorGroup(floor: FloorDef, planWallHeight?: number): Built
   group.position.y = floor.elevation ?? 0;
   const defaultHeight = floor.wallHeight ?? planWallHeight ?? DEFAULT_WALL_HEIGHT;
   const labels: TextLabel[] = [];
+  const wallById = new Map<number, THREE.Object3D>();
+  const roomById = new Map<number, THREE.Object3D>();
 
-  for (const room of floor.rooms ?? []) {
-    const centroid = buildFloor(group, room);
-    if (centroid && room.name) {
-      const label = new TextLabel(1.4);
-      label.setText(room.name, '#e8e8e8');
-      label.setPosition(centroid.x, 0.05, centroid.y);
-      labels.push(label);
-      group.add(label.sprite);
+  (floor.rooms ?? []).forEach((room, i) => {
+    const built = buildFloor(group, room, i);
+    if (built) {
+      roomById.set(i, built.mesh);
+      if (room.name) {
+        const label = new TextLabel(1.4);
+        label.setText(room.name, '#e8e8e8');
+        label.setPosition(built.centroid.x, 0.05, built.centroid.y);
+        labels.push(label);
+        group.add(label.sprite);
+      }
     }
-  }
+  });
 
-  for (const wall of floor.walls ?? []) {
-    buildWall(group, wall, defaultHeight);
-  }
+  (floor.walls ?? []).forEach((wall, i) => {
+    const wg = buildWall(group, wall, defaultHeight, i);
+    if (wg) wallById.set(i, wg);
+  });
 
   const furnitureById = new Map<string, THREE.Object3D>();
   for (const f of floor.furniture ?? []) {
@@ -161,7 +191,7 @@ export function buildFloorGroup(floor: FloorDef, planWallHeight?: number): Built
   }
 
   const bbox = new THREE.Box3().setFromObject(group);
-  return { group, furnitureById, bbox, labels };
+  return { group, furnitureById, wallById, roomById, bbox, labels };
 }
 
 function clamp(v: number, lo: number, hi: number): number {

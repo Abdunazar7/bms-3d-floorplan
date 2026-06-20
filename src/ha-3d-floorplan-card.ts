@@ -16,7 +16,15 @@ import { CARD_VERSION } from './version';
 import { installSidebar } from './sidebar';
 import { DEMO_PLAN } from './scene/demo-plan';
 import { EditorController, EditTool } from './editor/editor-controller';
-import { loadPlan as loadStoredPlan, savePlan, blankPlan } from './storage';
+import {
+  loadProjects,
+  saveProjects,
+  listProjects,
+  newProjectId,
+  blankPlan,
+  ProjectInfo,
+  StoredProjects,
+} from './storage';
 import { FURNITURE_KEYS, LIGHT_KEYS, entityDomainsFor } from './furniture/library';
 import { getThumbnail } from './furniture/thumbnails';
 
@@ -34,15 +42,20 @@ export class Ha3dFloorplanCard extends LitElement {
   @state() private editing = false;
   @state() private editTool: EditTool = 'wall';
   @state() private editPoints = 0;
-  @state() private editSelectedId: string | null = null;
   @state() private editSelectedModel = 'sofa';
   @state() private editSelectedEntity: string | null = null;
   @state() private editSelectedObjModel: string | null = null;
   @state() private editShowAllEntities = false;
   @state() private editSnap = true;
   @state() private editFloorIndex = 0;
+  @state() private editSelectedKind: 'furniture' | 'wall' | 'room' | null = null;
+  @state() private editSelectedColor: string | null = null;
+  @state() private projectList: ProjectInfo[] = [];
+  @state() private currentProjectId: string | null = null;
+  @state() private editPlanName = '';
   @state() private paletteOpen = false;
   @state() private toast?: string;
+  private storedProjects: StoredProjects = { projects: {} };
 
   @query('.viewport') private viewport?: HTMLDivElement;
 
@@ -195,9 +208,19 @@ export class Ha3dFloorplanCard extends LitElement {
     }
     if (cfg.plan) return cfg.plan;
     if (cfg.url) return this.fetchPlan(cfg.url);
-    // Nothing configured → saved plan (HA shared / localStorage) or built-in demo.
-    const saved = await loadStoredPlan(this.hass);
-    return saved ?? DEMO_PLAN;
+    // Nothing configured → named projects (HA shared / localStorage) or demo.
+    this.storedProjects = await loadProjects(this.hass);
+    this.projectList = listProjects(this.storedProjects);
+    const id =
+      this.storedProjects.active && this.storedProjects.projects[this.storedProjects.active]
+        ? this.storedProjects.active
+        : this.projectList[0]?.id;
+    if (id) {
+      this.currentProjectId = id;
+      return this.storedProjects.projects[id];
+    }
+    this.currentProjectId = null;
+    return DEMO_PLAN;
   }
 
   private async loadProjectRef(proj: ProjectRef): Promise<FloorPlan> {
@@ -272,11 +295,13 @@ export class Ha3dFloorplanCard extends LitElement {
       const ed = this.editor!;
       this.editTool = ed.tool;
       this.editPoints = ed.pointCount;
-      this.editSelectedId = ed.selectedId;
       this.editSelectedModel = ed.selectedModel;
       this.editSelectedEntity = ed.selectedEntity;
       this.editSelectedObjModel = ed.selectedObjectModel;
+      this.editSelectedKind = ed.selectedKind;
+      this.editSelectedColor = ed.selectedColor;
       this.editFloorIndex = ed.floorIndex;
+      this.editPlanName = ed.plan.name ?? '';
       this.requestUpdate();
     };
     this.editor.onMessage = (m) => this.showToast(m);
@@ -286,6 +311,7 @@ export class Ha3dFloorplanCard extends LitElement {
     this.editFloorIndex = this.editor.floorIndex;
     this.editor.setSnap(this.editSnap); // carry the snap preference into the new editor
     this.editShowAllEntities = false;
+    this.editPlanName = editable.name ?? 'Plan';
     this.editor.start();
     this.editing = true;
     this.editTool = this.editor.tool;
@@ -333,14 +359,85 @@ export class Ha3dFloorplanCard extends LitElement {
 
   private onNewPlan(): void {
     if (!this.editor) return;
-    // New only clears the editing canvas — your last SAVED plan stays in storage
-    // until you press Save again. Confirm so unsaved work isn't lost by accident.
+    // "New" creates a separate project — your other SAVED projects are untouched.
     const ok = window.confirm(
-      'Start a blank plan?\n\nUnsaved changes will be lost. Your last SAVED plan stays until you Save the blank one over it.',
+      'Create a NEW project?\n\nYour other saved projects stay. Unsaved changes in the current one will be lost. Draw, then Save to keep the new project.',
     );
     if (!ok) return;
-    this.editor.loadPlan(blankPlan());
-    this.showToast('Blank plan — draw your walls (not saved yet)');
+    const name = `Plan ${this.projectList.length + 1}`;
+    this.currentProjectId = newProjectId(); // a fresh id → does not overwrite others
+    this.editor.loadPlan(blankPlan(name));
+    this.editPlanName = name;
+    this.showToast('New project — draw it, then Save to keep it');
+  }
+
+  private onRenamePlan(e: Event): void {
+    const name = (e.target as HTMLInputElement).value;
+    this.editPlanName = name;
+    if (this.editor) this.editor.plan.name = name;
+  }
+
+  private onSelectStorageProject(e: Event): void {
+    const id = (e.target as HTMLSelectElement).value;
+    if (!id || id === this.currentProjectId) return;
+    const plan = this.storedProjects.projects[id];
+    if (!plan) return;
+    if (
+      this.editing &&
+      !window.confirm('Switch project? Unsaved changes in the current one will be lost.')
+    ) {
+      this.requestUpdate();
+      return;
+    }
+    this.currentProjectId = id;
+    const copy: FloorPlan = JSON.parse(JSON.stringify(plan));
+    const viewCopy: FloorPlan = JSON.parse(JSON.stringify(plan));
+    this.currentPlan = viewCopy;
+    this.floorNames = plan.floors.map((f, i) => f.name || `Floor ${i + 1}`);
+    if (this.editing && this.editor) {
+      this.editor.loadPlan(copy);
+      this.editPlanName = copy.name ?? '';
+    } else if (this.sceneManager) {
+      this.sceneManager.loadPlan(viewCopy);
+      if (this.hass) {
+        this.lastHass = undefined;
+        this.applyHass(this.hass);
+      }
+    }
+    this.showToast(`Loaded "${plan.name || id}"`);
+  }
+
+  private async onDeleteProject(): Promise<void> {
+    const id = this.currentProjectId;
+    if (!id || !this.storedProjects.projects[id]) {
+      this.showToast('This project is not saved yet');
+      return;
+    }
+    if (!window.confirm(`Delete project "${this.storedProjects.projects[id].name || id}"? This cannot be undone.`))
+      return;
+    delete this.storedProjects.projects[id];
+    const remaining = listProjects(this.storedProjects);
+    this.storedProjects.active = remaining[0]?.id;
+    await saveProjects(this.storedProjects, this.hass);
+    this.projectList = remaining;
+    this.currentProjectId = this.storedProjects.active ?? null;
+    const next = this.currentProjectId
+      ? this.storedProjects.projects[this.currentProjectId]
+      : blankPlan();
+    if (this.editor) {
+      this.editor.loadPlan(JSON.parse(JSON.stringify(next)));
+      this.editPlanName = next.name ?? '';
+    }
+    this.showToast('Project deleted');
+  }
+
+  private onSetColor(e: Event): void {
+    const color = (e.target as HTMLInputElement).value;
+    this.editor?.setColor(color);
+  }
+
+  private onNudgeHeight(delta: number): void {
+    this.editor?.nudgeHeight(delta);
   }
 
   private pickModel(model: string): void {
@@ -390,12 +487,24 @@ export class Ha3dFloorplanCard extends LitElement {
   private async onSavePlan(): Promise<void> {
     if (!this.editor) return;
     const plan = this.editor.plan;
-    const res = await savePlan(plan, this.hass);
-    // Adopt the saved plan as the current View-mode plan.
+    if (!plan.name) plan.name = this.editPlanName || 'Plan';
+    // Store under the current project id (create one if this is a new project).
+    let id = this.currentProjectId;
+    if (!id || !this.storedProjects.projects[id]) {
+      id = id || newProjectId();
+      this.currentProjectId = id;
+    }
+    this.storedProjects.projects[id] = JSON.parse(JSON.stringify(plan));
+    this.storedProjects.active = id;
+    const res = await saveProjects(this.storedProjects, this.hass);
+    // Adopt the saved plan as the current View-mode plan + refresh project list.
     this.currentPlan = JSON.parse(JSON.stringify(plan));
+    this.projectList = listProjects(this.storedProjects);
     this.floorNames = plan.floors.map((f, i) => f.name || `Floor ${i + 1}`);
     this.showToast(
-      res.ha ? 'Saved to Home Assistant (all devices)' : 'Saved locally (HA unavailable)',
+      res.ha
+        ? `Saved "${plan.name}" to Home Assistant (all devices)`
+        : `Saved "${plan.name}" locally (HA unavailable)`,
     );
   }
 
@@ -438,7 +547,9 @@ export class Ha3dFloorplanCard extends LitElement {
     const label = (k: string) =>
       k.replace(/_/g, ' ').replace(/\b\w/g, (m) => m.toUpperCase());
     const furnitureKeys = FURNITURE_KEYS.filter((k) => !LIGHT_KEYS.includes(k));
-    const hasSelection = tool === 'select' && !!this.editSelectedId;
+    const kind = this.editSelectedKind;
+    const hasSelection = tool === 'select' && !!kind;
+    const isFurniture = kind === 'furniture';
 
     return html`
       <div class="overlay top-left toolbar">
@@ -504,10 +615,26 @@ export class Ha3dFloorplanCard extends LitElement {
 
         ${hasSelection
           ? html`<div class="toolrow">
-              <button class="btn" title="Rotate 45°" @click=${this.onRotateSelected}>⟳ Rotate</button>
-              <button class="btn" title="Delete" @click=${this.onDeleteSelected}>🗑 Delete</button>
+              <span class="hint">${kind} selected</span>
+              ${isFurniture
+                ? html`<button class="btn" title="Rotate 45°" @click=${this.onRotateSelected}>⟳ Rotate</button>
+                    <button class="btn" title="Lower" @click=${() => this.onNudgeHeight(-0.1)}>▼ Down</button>
+                    <button class="btn" title="Raise" @click=${() => this.onNudgeHeight(0.1)}>▲ Up</button>`
+                : nothing}
+              ${kind !== 'room'
+                ? html`<button class="btn" title="Delete" @click=${this.onDeleteSelected}>🗑 Delete</button>`
+                : nothing}
             </div>
-            ${this.hass
+            <div class="toolrow">
+              <span class="hint">Color:</span>
+              <input
+                class="color"
+                type="color"
+                .value=${this.editSelectedColor ?? (kind === 'room' ? '#cfc7ba' : kind === 'wall' ? '#e6e6e6' : '#ffffff')}
+                @input=${this.onSetColor}
+              />
+            </div>
+            ${isFurniture && this.hass
               ? (() => {
                   const domains =
                     this.editShowAllEntities || !this.editSelectedObjModel
@@ -546,8 +673,8 @@ export class Ha3dFloorplanCard extends LitElement {
               : nothing}`
           : nothing}
 
-        ${tool === 'select' && !this.editSelectedId
-          ? html`<span class="hint">tap a piece to select; tap floor to move it</span>`
+        ${tool === 'select' && !kind
+          ? html`<span class="hint">tap a piece, wall, or floor to select · tap floor to move selected furniture</span>`
           : nothing}
         ${tool === 'door' || tool === 'window'
           ? html`<span class="hint">tap a wall to add a ${tool}</span>`
@@ -556,9 +683,34 @@ export class Ha3dFloorplanCard extends LitElement {
           ? html`<span class="hint">2 taps = 1 wall · 🧲 snaps parallel/right-angle + equal length (green = aided) · right-drag / two-finger to orbit</span>`
           : nothing}
 
-        <div class="toolrow">
-          <button class="btn" title="Start a blank plan" @click=${this.onNewPlan}>✚ New</button>
-          <button class="btn primary" title="Save" @click=${this.onSavePlan}>💾 Save</button>
+        <div class="panel-section">
+          <div class="toolrow">
+            <span class="hint">Project</span>
+            <input
+              class="name-input"
+              type="text"
+              placeholder="Project name"
+              .value=${this.editPlanName}
+              @input=${this.onRenamePlan}
+            />
+          </div>
+          ${this.projectList.length > 0
+            ? html`<div class="toolrow">
+                <select class="select wide" @change=${this.onSelectStorageProject}>
+                  ${this.currentProjectId && !this.storedProjects.projects[this.currentProjectId]
+                    ? html`<option value="" selected>(unsaved new)</option>`
+                    : nothing}
+                  ${this.projectList.map(
+                    (p) => html`<option value=${p.id} ?selected=${p.id === this.currentProjectId}>${p.name}</option>`,
+                  )}
+                </select>
+                <button class="btn" title="Delete this project" @click=${this.onDeleteProject}>🗑</button>
+              </div>`
+            : nothing}
+          <div class="toolrow">
+            <button class="btn" title="Create a new project (keeps the others)" @click=${this.onNewPlan}>✚ New</button>
+            <button class="btn primary" title="Save this project" @click=${this.onSavePlan}>💾 Save</button>
+          </div>
         </div>
       </div>
     `;
@@ -703,9 +855,49 @@ export class Ha3dFloorplanCard extends LitElement {
     }
     .toolbar {
       flex-direction: column;
-      align-items: flex-start;
+      align-items: stretch;
       gap: 6px;
-      max-width: min(360px, calc(100% - 130px));
+      top: 10px;
+      left: 10px;
+      bottom: 10px;
+      width: 270px;
+      max-width: 80%;
+      overflow-y: auto;
+      overflow-x: hidden;
+      padding: 10px;
+      border-radius: 12px;
+      background: rgba(22, 24, 28, 0.86);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      backdrop-filter: blur(6px);
+      -webkit-overflow-scrolling: touch;
+    }
+    .panel-section {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      margin-top: 8px;
+      padding-top: 8px;
+      border-top: 1px solid rgba(255, 255, 255, 0.12);
+    }
+    .color {
+      width: 42px;
+      height: 30px;
+      padding: 0;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      border-radius: 6px;
+      background: transparent;
+      cursor: pointer;
+    }
+    .name-input {
+      flex: 1;
+      min-width: 0;
+      font: inherit;
+      font-size: 13px;
+      color: #fff;
+      background: rgba(30, 33, 40, 0.82);
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      border-radius: 8px;
+      padding: 7px 10px;
     }
     .toolrow {
       display: flex;

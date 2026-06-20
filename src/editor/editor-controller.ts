@@ -50,8 +50,11 @@ export class EditorController {
   onMessage?: (msg: string) => void;
   /** Furniture model to drop with the furniture tool. */
   selectedModel = 'sofa';
-  /** Currently selected placement id (select tool). */
-  selectedId: string | null = null;
+  /** Current selection (select tool). */
+  selectedKind: 'furniture' | 'wall' | 'room' | null = null;
+  selectedId: string | null = null; // furniture id
+  selectedWall = -1; // wall array index
+  selectedRoom = -1; // room array index
 
   private sm: SceneManager;
   /** Points of the wall run being drawn; each new click commits a wall. */
@@ -103,7 +106,7 @@ export class EditorController {
   setFloor(index: number): void {
     if (index < 0 || index >= this.plan.floors.length) return;
     this.cancelChain();
-    this.select(null);
+    this.clearSelection();
     this.floorIndex = index;
     this.sm.setActiveFloor(index);
     this.applySceneEditState();
@@ -116,7 +119,7 @@ export class EditorController {
     // right mouse / two fingers always orbit + zoom (no tool-switch needed).
     this.sm.setDrawMode(t !== 'orbit');
     if (t !== 'wall') this.cancelChain();
-    if (t !== 'select') this.select(null);
+    if (t !== 'select') this.clearSelection();
     this.onChange?.();
   }
 
@@ -125,16 +128,26 @@ export class EditorController {
   }
 
   get selectedEntity(): string | null {
-    if (!this.selectedId) return null;
+    if (this.selectedKind !== 'furniture' || !this.selectedId) return null;
     const b = this.floor().bindings?.find((x) => x.anchor_object === this.selectedId);
     return b?.entity_id ?? null;
   }
 
-  /** Model key of the currently selected placement (for domain-filtered binding). */
+  /** Model key of the currently selected furniture (for domain-filtered binding). */
   get selectedObjectModel(): string | null {
-    if (!this.selectedId) return null;
+    if (this.selectedKind !== 'furniture' || !this.selectedId) return null;
     const f = this.floor().furniture?.find((x) => x.id === this.selectedId);
     return f?.model ?? null;
+  }
+
+  /** Current color of the selected furniture / wall / room (for the color picker). */
+  get selectedColor(): string | null {
+    const fl = this.floor();
+    if (this.selectedKind === 'furniture')
+      return fl.furniture?.find((x) => x.id === this.selectedId)?.color ?? null;
+    if (this.selectedKind === 'wall') return fl.walls?.[this.selectedWall]?.color ?? null;
+    if (this.selectedKind === 'room') return fl.rooms?.[this.selectedRoom]?.color ?? null;
+    return null;
   }
 
   // -- Furniture / selection --------------------------------------------------
@@ -151,8 +164,7 @@ export class EditorController {
       id,
     });
     this.rebuild();
-    this.select(id);
-    this.onChange?.();
+    this.selectFurniture(id);
   }
 
   private moveSelected(p: THREE.Vector3): void {
@@ -160,39 +172,113 @@ export class EditorController {
     if (!f) return;
     f.position = [snap(p.x), f.position[1], snap(p.z)];
     this.rebuild();
-    this.select(this.selectedId);
+    this.reselect();
     this.onChange?.();
   }
 
-  select(id: string | null): void {
+  selectFurniture(id: string | null): void {
+    this.selectedKind = id ? 'furniture' : null;
     this.selectedId = id;
-    const obj = id ? this.sm.getFurnitureObject(id) : null;
-    this.sm.setSelection(obj ?? null);
+    this.selectedWall = -1;
+    this.selectedRoom = -1;
+    this.sm.setSelection(id ? this.sm.getFurnitureObject(id) ?? null : null);
     this.onChange?.();
+  }
+
+  selectWall(index: number): void {
+    this.selectedKind = 'wall';
+    this.selectedWall = index;
+    this.selectedId = null;
+    this.selectedRoom = -1;
+    this.sm.setSelection(this.sm.getWallObject(index) ?? null);
+    this.onChange?.();
+  }
+
+  selectRoom(index: number): void {
+    this.selectedKind = 'room';
+    this.selectedRoom = index;
+    this.selectedId = null;
+    this.selectedWall = -1;
+    this.sm.setSelection(this.sm.getRoomObject(index) ?? null);
+    this.onChange?.();
+  }
+
+  clearSelection(): void {
+    this.selectedKind = null;
+    this.selectedId = null;
+    this.selectedWall = -1;
+    this.selectedRoom = -1;
+    this.sm.setSelection(null);
+    this.onChange?.();
+  }
+
+  /** Re-apply the selection highlight after a rebuild (object instances change). */
+  private reselect(): void {
+    if (this.selectedKind === 'furniture' && this.selectedId)
+      this.sm.setSelection(this.sm.getFurnitureObject(this.selectedId) ?? null);
+    else if (this.selectedKind === 'wall' && this.selectedWall >= 0)
+      this.sm.setSelection(this.sm.getWallObject(this.selectedWall) ?? null);
+    else if (this.selectedKind === 'room' && this.selectedRoom >= 0)
+      this.sm.setSelection(this.sm.getRoomObject(this.selectedRoom) ?? null);
   }
 
   rotateSelected(): void {
+    if (this.selectedKind !== 'furniture') return;
     const f = this.floor().furniture?.find((x) => x.id === this.selectedId);
     if (!f) return;
     f.rotation = ((f.rotation ?? 0) + 45) % 360;
     this.rebuild();
-    this.select(this.selectedId);
+    this.reselect();
+    this.onChange?.();
+  }
+
+  /** Move the selected furniture up/down along the vertical axis. */
+  nudgeHeight(delta: number): void {
+    if (this.selectedKind !== 'furniture') return;
+    const f = this.floor().furniture?.find((x) => x.id === this.selectedId);
+    if (!f) return;
+    f.position[1] = Math.max(0, Math.round((f.position[1] + delta) * 100) / 100);
+    this.rebuild();
+    this.reselect();
+    this.onChange?.();
+  }
+
+  /** Set the color of the selected furniture / wall / room. */
+  setColor(color: string): void {
+    const fl = this.floor();
+    if (this.selectedKind === 'furniture') {
+      const f = fl.furniture?.find((x) => x.id === this.selectedId);
+      if (f) f.color = color;
+    } else if (this.selectedKind === 'wall' && fl.walls?.[this.selectedWall]) {
+      fl.walls[this.selectedWall].color = color;
+    } else if (this.selectedKind === 'room' && fl.rooms?.[this.selectedRoom]) {
+      fl.rooms[this.selectedRoom].color = color;
+    } else {
+      return;
+    }
+    this.rebuild();
+    this.reselect();
     this.onChange?.();
   }
 
   deleteSelected(): void {
-    if (!this.selectedId) return;
     const fl = this.floor();
-    fl.furniture = (fl.furniture ?? []).filter((x) => x.id !== this.selectedId);
-    fl.bindings = (fl.bindings ?? []).filter((b) => b.anchor_object !== this.selectedId);
-    this.selectedId = null;
-    this.sm.setSelection(null);
+    if (this.selectedKind === 'furniture' && this.selectedId) {
+      fl.furniture = (fl.furniture ?? []).filter((x) => x.id !== this.selectedId);
+      fl.bindings = (fl.bindings ?? []).filter((b) => b.anchor_object !== this.selectedId);
+    } else if (this.selectedKind === 'wall' && this.selectedWall >= 0) {
+      fl.walls?.splice(this.selectedWall, 1);
+    } else if (this.selectedKind === 'room' && this.selectedRoom >= 0) {
+      fl.rooms?.splice(this.selectedRoom, 1);
+    } else {
+      return;
+    }
+    this.clearSelection();
     this.rebuild();
-    this.onChange?.();
   }
 
   bindEntity(entityId: string | null): void {
-    if (!this.selectedId) return;
+    if (this.selectedKind !== 'furniture' || !this.selectedId) return;
     const fl = this.floor();
     if (!fl.bindings) fl.bindings = [];
     fl.bindings = fl.bindings.filter((b) => b.anchor_object !== this.selectedId);
@@ -200,7 +286,7 @@ export class EditorController {
       fl.bindings.push({ entity_id: entityId, anchor_object: this.selectedId, behavior: 'auto' });
     }
     this.rebuild();
-    this.select(this.selectedId);
+    this.reselect();
     this.onChange?.();
   }
 
@@ -233,10 +319,25 @@ export class EditorController {
       return;
     }
     if (this.tool === 'select') {
-      const hit = e ? this.sm.pickFurniture(e) : null;
-      if (hit) this.select(hit.id);
-      else if (this.selectedId) this.moveSelected(p);
-      else this.select(null);
+      const hitF = e ? this.sm.pickFurniture(e) : null;
+      if (hitF) {
+        this.selectFurniture(hitF.id);
+        return;
+      }
+      const hitW = e ? this.sm.pickWall(e) : null;
+      if (hitW) {
+        this.selectWall(hitW.index);
+        return;
+      }
+      // A selected furniture piece: tap the floor to move it.
+      if (this.selectedKind === 'furniture' && this.selectedId) {
+        this.moveSelected(p);
+        return;
+      }
+      // Otherwise tapping the floor selects the room (e.g. to recolor it).
+      const hitR = e ? this.sm.pickRoom(e) : null;
+      if (hitR) this.selectRoom(hitR.index);
+      else this.clearSelection();
       return;
     }
     if (this.tool !== 'wall') return;
@@ -427,7 +528,26 @@ export class EditorController {
     if (!best.openings) best.openings = [];
     const width = kind === 'door' ? 0.9 : 1.0;
     const position = Math.max(0, Math.min(wallLen - width, along - width / 2));
-    best.openings.push({ kind, position, width });
+    best.openings.push({ kind, position, width }); // cuts the hole in the wall
+
+    // Drop a frame model into the opening, fitted to the wall (centered on the
+    // hole, rotated to the wall direction) so it reads as a real door/window.
+    const sx = best.start[0], sz = best.start[1], ex = best.end[0], ez = best.end[1];
+    const wdx = ex - sx, wdz = ez - sz;
+    const wlen = Math.hypot(wdx, wdz) || 1;
+    const center = position + width / 2;
+    const wx = sx + (wdx / wlen) * center;
+    const wz = sz + (wdz / wlen) * center;
+    const rotDeg = (-Math.atan2(wdz, wdx) * 180) / Math.PI;
+    const fl2 = this.floor();
+    if (!fl2.furniture) fl2.furniture = [];
+    fl2.furniture.push({
+      model: kind === 'door' ? 'door' : 'window_frame',
+      position: [wx, 0, wz],
+      rotation: rotDeg,
+      id: `op${fl2.furniture.length}_${Math.floor(performance.now() % 100000)}`,
+    });
+
     this.rebuild();
     this.onChange?.();
   }
@@ -468,8 +588,7 @@ export class EditorController {
     this.plan = plan;
     this.floorIndex = 0;
     this.cancelChain();
-    this.selectedId = null;
-    this.sm.setSelection(null);
+    this.clearSelection();
     this.sm.loadPlan(plan, false); // blank → frame the origin, don't keep far camera
     this.applySceneEditState();
     this.onChange?.();

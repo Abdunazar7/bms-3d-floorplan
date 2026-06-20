@@ -80,6 +80,8 @@ export class SceneManager {
     this.controls.enableDamping = true;
     this.controls.dampingFactor = 0.12;
     this.controls.screenSpacePanning = false;
+    // Zoom toward the cursor / two-finger pinch midpoint, not a fixed point.
+    this.controls.zoomToCursor = true;
     this.controls.minDistance = 2;
     this.controls.maxDistance = 40;
     // Keep the camera above the floor so you can't flip under the building.
@@ -314,6 +316,46 @@ export class SceneManager {
 
   getFurnitureObject(id: string): THREE.Object3D | undefined {
     return this.floors[this.activeFloor]?.furnitureById.get(id);
+  }
+
+  getWallObject(index: number): THREE.Object3D | undefined {
+    return this.floors[this.activeFloor]?.wallById.get(index);
+  }
+
+  getRoomObject(index: number): THREE.Object3D | undefined {
+    return this.floors[this.activeFloor]?.roomById.get(index);
+  }
+
+  /** Raycast for a wall sub-group (returns its wall array-index). */
+  pickWall(e: PointerEvent): { index: number; object: THREE.Object3D } | null {
+    return this.pickByUserData(e, 'wallIndex');
+  }
+
+  /** Raycast for a room floor mesh (returns its room array-index). */
+  pickRoom(e: PointerEvent): { index: number; object: THREE.Object3D } | null {
+    return this.pickByUserData(e, 'roomIndex');
+  }
+
+  private pickByUserData(
+    e: PointerEvent,
+    key: 'wallIndex' | 'roomIndex',
+  ): { index: number; object: THREE.Object3D } | null {
+    const group = this.floorGroups[this.activeFloor];
+    if (!group) return null;
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    this.pointer.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+    this.pointer.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+    this.raycaster.setFromCamera(this.pointer, this.camera);
+    const hits = this.raycaster.intersectObject(group, true);
+    for (const h of hits) {
+      let cur: THREE.Object3D | null = h.object;
+      while (cur) {
+        const v = cur.userData?.[key];
+        if (typeof v === 'number') return { index: v, object: cur };
+        cur = cur.parent;
+      }
+    }
+    return null;
   }
 
   /** Highlight a selected object with a bounding box, or clear it. */
