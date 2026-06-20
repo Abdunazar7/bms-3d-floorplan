@@ -33,13 +33,28 @@ Built specifically to fix two pain points of existing tools:
 
 ## Install
 
-### HACS (recommended)
+### HACS as an Integration (recommended)
 
-1. HACS → **Frontend** → ⋮ → **Custom repositories**.
-2. Add this repo URL, category **Lovelace**.
-3. Install **3D Floor Plan Card**, then reload your browser.
+Installing as an **integration** registers a native **3D Floor Plan** sidebar
+panel and loads the frontend on every page — so it appears on every tab, every
+device, and survives page refreshes (no YAML, no manual resource). It's a custom
+integration, not an add-on, so it works on every HA install type — no Supervisor.
 
-### Manual
+1. HACS → ⋮ → **Custom repositories** → add this repo URL, category
+   **Integration**.
+2. Install **3D Floor Plan**, then **restart Home Assistant**.
+3. Settings → Devices & Services → **Add Integration** → "3D Floor Plan" →
+   Submit.
+4. The **3D Floor Plan** item appears in the sidebar. Open it and tap **✎ Edit**.
+
+> Upgrading from the old Lovelace-plugin install? Remove that HACS entry first,
+> then add the repo again as **Integration** — everything keeps working, just
+> reliably.
+
+You can still drop `type: custom:ha-3d-floorplan-card` as a card on any
+dashboard (the integration loads the module everywhere).
+
+### Manual (Lovelace resource, optional)
 
 1. Copy `dist/ha-3d-floorplan-card.js` to `/config/www/`.
 2. Add the resource (Settings → Dashboards → ⋮ → Resources):

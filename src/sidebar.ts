@@ -249,10 +249,13 @@ export function installSidebar(): void {
   const tryInject = () => {
     const sidebar = currentSidebar();
     if (!sidebar) return;
-    // If the card is mounted as a real panel_custom panel, drop the injected
-    // item to avoid a duplicate sidebar entry.
-    if ((window as any).__ha3dPanelMode) {
-      const root = (sidebar as any).shadowRoot as ShadowRoot;
+    const root = (sidebar as any).shadowRoot as ShadowRoot;
+    // If a native panel (integration / panel_custom) already provides the
+    // sidebar entry, stand down to avoid a duplicate item.
+    const nativePanel = root.querySelector(
+      'a[href="/3d-floorplan"], a[href$="/3d-floorplan"], a[href$="/ha-3d-floorplan-card"]',
+    );
+    if (nativePanel || (window as any).__ha3dPanelMode) {
       root.getElementById(ITEM_ID)?.remove();
       return;
     }

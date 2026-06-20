@@ -1,6 +1,5 @@
 {
-  "name": "3D Floor Plan Card",
+  "name": "3D Floor Plan",
   "render_readme": true,
-  "filename": "ha-3d-floorplan-card.js",
-  "content_in_root": false
+  "homeassistant": "2024.4.0"
 }
