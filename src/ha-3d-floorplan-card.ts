@@ -14,6 +14,21 @@ import { SceneManager, ClickResult } from './scene/scene-manager';
 import { clickToService } from './scene/bindings';
 import { CARD_VERSION } from './version';
 import { installSidebar } from './sidebar';
+import { DEMO_PLAN } from './scene/demo-plan';
+
+/** localStorage key where the (future) in-app editor saves the default plan. */
+const STORAGE_KEY = 'ha3d-floorplan-default';
+
+function loadLocalPlan(): FloorPlan | null {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return null;
+    const plan = JSON.parse(raw) as FloorPlan;
+    return plan.floors?.length ? plan : null;
+  } catch {
+    return null;
+  }
+}
 
 @customElement('ha-3d-floorplan-card')
 export class Ha3dFloorplanCard extends LitElement {
@@ -35,11 +50,8 @@ export class Ha3dFloorplanCard extends LitElement {
 
   public setConfig(config: CardConfig): void {
     if (!config) throw new Error('Invalid configuration');
-    if (!config.plan && !config.url && !(config.projects && config.projects.length)) {
-      throw new Error(
-        'Provide one of: `plan` (inline), `url` (JSON file), or `projects` (list).',
-      );
-    }
+    // Empty config is allowed: the card falls back to a saved (localStorage)
+    // plan or the built-in demo, so it works with zero files / zero YAML.
     this.config = config;
     this.loadError = undefined;
     this.planLoaded = false;
@@ -165,7 +177,8 @@ export class Ha3dFloorplanCard extends LitElement {
     }
     if (cfg.plan) return cfg.plan;
     if (cfg.url) return this.fetchPlan(cfg.url);
-    throw new Error('No plan, url, or projects configured.');
+    // Nothing configured → saved plan (localStorage) or built-in demo.
+    return loadLocalPlan() ?? DEMO_PLAN;
   }
 
   private async loadProjectRef(proj: ProjectRef): Promise<FloorPlan> {

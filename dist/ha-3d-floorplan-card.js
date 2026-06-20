@@ -20446,7 +20446,7 @@ function yy(i) {
     t.geometry && t.geometry.dispose(), t.material && (Array.isArray(t.material) ? t.material : [t.material]).forEach((s) => s.dispose());
   });
 }
-const My = "0.2.1", Ac = "ha-3d-floorplan-sidebar-item", Ih = "ha-3d-floorplan-overlay";
+const My = "0.2.2", Ac = "ha-3d-floorplan-sidebar-item", Ih = "ha-3d-floorplan-overlay";
 function Sy() {
   return window.ha3dFloorplan ?? {};
 }
@@ -20497,11 +20497,9 @@ function Dh(i, e) {
   n && n.parentNode ? n.parentNode.insertBefore(s, n.nextSibling) : t.appendChild(s);
 }
 function wy(i) {
-  return i.config ? { type: "custom:ha-3d-floorplan-card", height: "100vh", ...i.config } : {
-    type: "custom:ha-3d-floorplan-card",
-    height: "100vh",
-    url: i.url ?? "/local/floorplans/home.json"
-  };
+  if (i.config) return { type: "custom:ha-3d-floorplan-card", height: "100vh", ...i.config };
+  const e = { type: "custom:ha-3d-floorplan-card", height: "100vh" };
+  return i.url && (e.url = i.url), e;
 }
 function Ry() {
   const t = document.querySelector("home-assistant")?.shadowRoot?.querySelector("home-assistant-main")?.shadowRoot?.querySelector("ha-sidebar");
@@ -20581,11 +20579,57 @@ async function Py() {
     t.getElementById(Ac) || Dh(e, i);
   }).observe(t, { childList: !0, subtree: !0 });
 }
-var Ly = Object.defineProperty, Iy = Object.getOwnPropertyDescriptor, Kn = (i, e, t, n) => {
-  for (var s = n > 1 ? void 0 : n ? Iy(e, t) : e, r = i.length - 1, o; r >= 0; r--)
-    (o = i[r]) && (s = (n ? o(e, t, s) : o(s)) || s);
-  return n && s && Ly(e, t, s), s;
+const Ly = {
+  name: "Demo Home",
+  wallHeight: 2.6,
+  floors: [
+    {
+      name: "Ground Floor",
+      elevation: 0,
+      wallHeight: 2.6,
+      walls: [
+        { start: [0, 0], end: [8, 0], openings: [{ kind: "window", position: 3, width: 1.4 }] },
+        { start: [8, 0], end: [8, 6] },
+        { start: [8, 6], end: [0, 6], openings: [{ kind: "door", position: 3.5, width: 1 }] },
+        { start: [0, 6], end: [0, 0] },
+        { start: [4.5, 0], end: [4.5, 6], openings: [{ kind: "door", position: 2.5, width: 0.9 }] }
+      ],
+      rooms: [
+        { name: "Living Room", polygon: [[0, 0], [4.5, 0], [4.5, 6], [0, 6]], color: "#cdbfa6" },
+        { name: "Kitchen", polygon: [[4.5, 0], [8, 0], [8, 6], [4.5, 6]], color: "#c2c8c4" }
+      ],
+      furniture: [
+        { model: "sofa", position: [1.2, 0, 4.6], rotation: 0, color: "#5b6b7a", id: "sofa1" },
+        { model: "table", position: [2.2, 0, 2.6], color: "#8a5a30", id: "table1" },
+        { model: "chair", position: [2.2, 0, 1.7], rotation: 180, id: "chair1" },
+        { model: "tv", position: [2.2, 0, 0.3], rotation: 0, id: "tv1" },
+        { model: "ceiling_light", position: [2.2, 2.45, 3], color: "#ffffff", id: "living_lamp" },
+        { model: "kitchen_counter", position: [6.2, 0, 0.5], rotation: 0, color: "#e8e8e8", id: "counter1" },
+        { model: "fridge", position: [7.5, 0, 1.5], rotation: -90, id: "fridge1" },
+        { model: "sink", position: [5.2, 0, 0.5], id: "sink1" },
+        { model: "ceiling_light", position: [6.2, 2.45, 3], id: "kitchen_lamp" }
+      ],
+      // No entity bindings in the demo, so nothing shows as "unavailable".
+      bindings: []
+    }
+  ]
 };
+var Iy = Object.defineProperty, Dy = Object.getOwnPropertyDescriptor, Kn = (i, e, t, n) => {
+  for (var s = n > 1 ? void 0 : n ? Dy(e, t) : e, r = i.length - 1, o; r >= 0; r--)
+    (o = i[r]) && (s = (n ? o(e, t, s) : o(s)) || s);
+  return n && s && Iy(e, t, s), s;
+};
+const Ny = "ha3d-floorplan-default";
+function Uy() {
+  try {
+    const i = localStorage.getItem(Ny);
+    if (!i) return null;
+    const e = JSON.parse(i);
+    return e.floors?.length ? e : null;
+  } catch {
+    return null;
+  }
+}
 let hn = class extends Vi {
   constructor() {
     super(...arguments), this.floorNames = [], this.activeFloorIndex = 0, this.planLoaded = !1;
@@ -20593,10 +20637,6 @@ let hn = class extends Vi {
   // -- Lovelace lifecycle -----------------------------------------------------
   setConfig(i) {
     if (!i) throw new Error("Invalid configuration");
-    if (!i.plan && !i.url && !(i.projects && i.projects.length))
-      throw new Error(
-        "Provide one of: `plan` (inline), `url` (JSON file), or `projects` (list)."
-      );
     this.config = i, this.loadError = void 0, this.planLoaded = !1, this.activeProjectId = i.projects && i.projects.length ? i.projects[0].id : void 0, this.sceneManager && this.loadActiveProject();
   }
   getCardSize() {
@@ -20632,7 +20672,7 @@ let hn = class extends Vi {
     };
   }
   static async getConfigElement() {
-    return await Promise.resolve().then(() => Uy), document.createElement("ha-3d-floorplan-card-editor");
+    return await Promise.resolve().then(() => By), document.createElement("ha-3d-floorplan-card-editor");
   }
   // -- hass updates -----------------------------------------------------------
   willUpdate(i) {
@@ -20674,9 +20714,7 @@ let hn = class extends Vi {
       const e = i.projects.find((t) => t.id === this.activeProjectId) ?? i.projects[0];
       return this.loadProjectRef(e);
     }
-    if (i.plan) return i.plan;
-    if (i.url) return this.fetchPlan(i.url);
-    throw new Error("No plan, url, or projects configured.");
+    return i.plan ? i.plan : i.url ? this.fetchPlan(i.url) : Uy() ?? Ly;
   }
   async loadProjectRef(i) {
     if (i.plan) return i.plan;
@@ -20885,10 +20923,10 @@ console.info(
   "color:#03a9f4;background:#222;border-radius:0 4px 4px 0;padding:2px 6px"
 );
 Py();
-var Dy = Object.defineProperty, Ny = Object.getOwnPropertyDescriptor, Js = (i, e, t, n) => {
-  for (var s = n > 1 ? void 0 : n ? Ny(e, t) : e, r = i.length - 1, o; r >= 0; r--)
+var Oy = Object.defineProperty, Fy = Object.getOwnPropertyDescriptor, Js = (i, e, t, n) => {
+  for (var s = n > 1 ? void 0 : n ? Fy(e, t) : e, r = i.length - 1, o; r >= 0; r--)
     (o = i[r]) && (s = (n ? o(e, t, s) : o(s)) || s);
-  return n && s && Dy(e, t, s), s;
+  return n && s && Oy(e, t, s), s;
 };
 let Yn = class extends Vi {
   constructor() {
@@ -21051,7 +21089,7 @@ Js([
 Yn = Js([
   kh("ha-3d-floorplan-card-editor")
 ], Yn);
-const Uy = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
+const By = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
   __proto__: null,
   get Ha3dFloorplanCardEditor() {
     return Yn;

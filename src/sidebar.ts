@@ -119,14 +119,14 @@ function inject(sidebar: HTMLElement, s: SidebarSettings): void {
   }
 }
 
-/** Resolve the card config from settings (inline config wins over url). */
+/** Resolve the card config from settings (inline config wins over url).
+ *  With no config/url, the card falls back to a saved (localStorage) plan or
+ *  the built-in demo — so the overlay never 404s on a missing file. */
 function resolveConfig(s: SidebarSettings): Record<string, any> {
   if (s.config) return { type: 'custom:ha-3d-floorplan-card', height: '100vh', ...s.config };
-  return {
-    type: 'custom:ha-3d-floorplan-card',
-    height: '100vh',
-    url: s.url ?? '/local/floorplans/home.json',
-  };
+  const cfg: Record<string, any> = { type: 'custom:ha-3d-floorplan-card', height: '100vh' };
+  if (s.url) cfg.url = s.url;
+  return cfg;
 }
 
 /** Right edge (x) of the sidebar in viewport coords, so the overlay can start
