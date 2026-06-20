@@ -17,6 +17,7 @@ import { installSidebar } from './sidebar';
 import { DEMO_PLAN } from './scene/demo-plan';
 import { EditorController, EditTool } from './editor/editor-controller';
 import { loadPlan as loadStoredPlan, savePlan, blankPlan } from './storage';
+import { FURNITURE_KEYS, LIGHT_KEYS } from './furniture/library';
 
 @customElement('ha-3d-floorplan-card')
 export class Ha3dFloorplanCard extends LitElement {
@@ -29,6 +30,9 @@ export class Ha3dFloorplanCard extends LitElement {
   @state() private editing = false;
   @state() private editTool: EditTool = 'wall';
   @state() private editPoints = 0;
+  @state() private editSelectedId: string | null = null;
+  @state() private editSelectedModel = 'sofa';
+  @state() private editSelectedEntity: string | null = null;
   @state() private toast?: string;
 
   @query('.viewport') private viewport?: HTMLDivElement;
@@ -247,8 +251,12 @@ export class Ha3dFloorplanCard extends LitElement {
     const editable: FloorPlan = JSON.parse(JSON.stringify(this.currentPlan));
     this.editor = new EditorController(this.sceneManager, editable);
     this.editor.onChange = () => {
-      this.editTool = this.editor!.tool;
-      this.editPoints = this.editor!.pointCount;
+      const ed = this.editor!;
+      this.editTool = ed.tool;
+      this.editPoints = ed.pointCount;
+      this.editSelectedId = ed.selectedId;
+      this.editSelectedModel = ed.selectedModel;
+      this.editSelectedEntity = ed.selectedEntity;
       this.requestUpdate();
     };
     this.sceneManager.loadPlan(editable, true);
@@ -290,6 +298,26 @@ export class Ha3dFloorplanCard extends LitElement {
     this.showToast('Blank plan — draw your walls');
   }
 
+  private onSelectModel(e: Event): void {
+    if (!this.editor) return;
+    this.editor.selectedModel = (e.target as HTMLSelectElement).value;
+    this.editSelectedModel = this.editor.selectedModel;
+  }
+
+  private onRotateSelected(): void {
+    this.editor?.rotateSelected();
+  }
+
+  private onDeleteSelected(): void {
+    this.editor?.deleteSelected();
+  }
+
+  private onBindEntity(e: CustomEvent): void {
+    const entityId = (e.detail?.value as string) || null;
+    this.editor?.bindEntity(entityId);
+    this.showToast(entityId ? `Bound ${entityId}` : 'Binding cleared');
+  }
+
   private async onSavePlan(): Promise<void> {
     if (!this.editor) return;
     const plan = this.editor.plan;
@@ -323,6 +351,82 @@ export class Ha3dFloorplanCard extends LitElement {
     this.sceneManager?.stop();
   }
 
+  private renderEditor() {
+    const tool = this.editTool;
+    const label = (k: string) =>
+      k.replace(/_/g, ' ').replace(/\b\w/g, (m) => m.toUpperCase());
+    const furnitureKeys = FURNITURE_KEYS.filter((k) => !LIGHT_KEYS.includes(k));
+    const hasSelection = tool === 'select' && !!this.editSelectedId;
+
+    return html`
+      <div class="overlay top-left toolbar">
+        <div class="toolrow">
+          <button class="btn ${tool === 'wall' ? 'active' : ''}" title="Draw walls"
+            @click=${() => this.onEditTool('wall')}>▟ Wall</button>
+          <button class="btn ${tool === 'furniture' ? 'active' : ''}" title="Place furniture"
+            @click=${() => this.onEditTool('furniture')}>🛋 Furniture</button>
+          <button class="btn ${tool === 'select' ? 'active' : ''}" title="Select / move / bind"
+            @click=${() => this.onEditTool('select')}>☝ Select</button>
+          <button class="btn ${tool === 'orbit' ? 'active' : ''}" title="Move camera"
+            @click=${() => this.onEditTool('orbit')}>✋ View</button>
+        </div>
+
+        ${tool === 'wall'
+          ? html`<div class="toolrow">
+              <button class="btn" ?disabled=${this.editPoints < 2}
+                title="Finish this run of walls" @click=${this.onFinishChain}>✓ Finish</button>
+              <button class="btn" ?disabled=${this.editPoints < 1}
+                title="Undo last point" @click=${this.onUndoPoint}>⤺ Undo</button>
+            </div>`
+          : nothing}
+
+        ${tool === 'furniture'
+          ? html`<div class="toolrow">
+              <select class="select wide" @change=${this.onSelectModel} .value=${this.editSelectedModel}>
+                <optgroup label="Lighting">
+                  ${LIGHT_KEYS.map(
+                    (k) => html`<option value=${k} ?selected=${k === this.editSelectedModel}>${label(k)}</option>`,
+                  )}
+                </optgroup>
+                <optgroup label="Furniture">
+                  ${furnitureKeys.map(
+                    (k) => html`<option value=${k} ?selected=${k === this.editSelectedModel}>${label(k)}</option>`,
+                  )}
+                </optgroup>
+              </select>
+              <span class="hint">tap floor to place</span>
+            </div>`
+          : nothing}
+
+        ${hasSelection
+          ? html`<div class="toolrow">
+              <button class="btn" title="Rotate 45°" @click=${this.onRotateSelected}>⟳ Rotate</button>
+              <button class="btn" title="Delete" @click=${this.onDeleteSelected}>🗑 Delete</button>
+            </div>
+            ${this.hass
+              ? html`<div class="toolrow">
+                  <ha-entity-picker
+                    .hass=${this.hass}
+                    .value=${this.editSelectedEntity ?? ''}
+                    allow-custom-entity
+                    @value-changed=${this.onBindEntity}
+                  ></ha-entity-picker>
+                </div>`
+              : nothing}`
+          : nothing}
+
+        ${tool === 'select' && !this.editSelectedId
+          ? html`<span class="hint">tap a piece to select; tap floor to move it</span>`
+          : nothing}
+
+        <div class="toolrow">
+          <button class="btn" title="Start a blank plan" @click=${this.onNewPlan}>✚ New</button>
+          <button class="btn primary" title="Save" @click=${this.onSavePlan}>💾 Save</button>
+        </div>
+      </div>
+    `;
+  }
+
   // -- Render -----------------------------------------------------------------
 
   protected override render() {
@@ -351,22 +455,7 @@ export class Ha3dFloorplanCard extends LitElement {
               </button>`}
         </div>
 
-        ${this.editing
-          ? html`
-              <div class="overlay top-left toolbar">
-                <button class="btn ${this.editTool === 'wall' ? 'active' : ''}"
-                  title="Draw walls" @click=${() => this.onEditTool('wall')}>▟ Draw wall</button>
-                <button class="btn ${this.editTool === 'orbit' ? 'active' : ''}"
-                  title="Move camera" @click=${() => this.onEditTool('orbit')}>✋ Move view</button>
-                <button class="btn" ?disabled=${this.editPoints < 2}
-                  title="Finish this run of walls" @click=${this.onFinishChain}>✓ Finish</button>
-                <button class="btn" ?disabled=${this.editPoints < 1}
-                  title="Undo last point" @click=${this.onUndoPoint}>⤺ Undo</button>
-                <button class="btn" title="Start a blank plan" @click=${this.onNewPlan}>✚ New</button>
-                <button class="btn primary" title="Save" @click=${this.onSavePlan}>💾 Save</button>
-              </div>
-            `
-          : nothing}
+        ${this.editing ? this.renderEditor() : nothing}
 
         ${this.toast ? html`<div class="toast">${this.toast}</div>` : nothing}
 
@@ -476,8 +565,30 @@ export class Ha3dFloorplanCard extends LitElement {
       pointer-events: none;
     }
     .toolbar {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 6px;
+      max-width: min(360px, calc(100% - 130px));
+    }
+    .toolrow {
+      display: flex;
       flex-wrap: wrap;
-      max-width: calc(100% - 130px);
+      gap: 6px;
+      align-items: center;
+    }
+    .select.wide {
+      min-width: 150px;
+    }
+    .hint {
+      font-size: 12px;
+      color: #cfe0ff;
+      background: rgba(30, 33, 40, 0.7);
+      padding: 4px 8px;
+      border-radius: 6px;
+    }
+    ha-entity-picker {
+      width: 240px;
+      max-width: 70vw;
     }
     .toast {
       position: absolute;

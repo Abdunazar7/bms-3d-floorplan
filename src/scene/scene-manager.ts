@@ -49,6 +49,7 @@ export class SceneManager {
   readonly previewGroup = new THREE.Group();
   private editing = false;
   private gridHelper?: THREE.GridHelper;
+  private selectionHelper?: THREE.BoxHelper;
   private groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
   private onGround?: {
     click?: (p: THREE.Vector3, e: PointerEvent) => void;
@@ -275,6 +276,45 @@ export class SceneManager {
     } else {
       if (this.gridHelper) this.gridHelper.visible = false;
       this.clearPreview();
+      this.setSelection(null);
+    }
+  }
+
+  /** Raycast a pointer event against the active floor; return the furniture
+   *  placement it hits (by id), walking up to the placement group. */
+  pickFurniture(e: PointerEvent): { id: string; object: THREE.Object3D } | null {
+    const group = this.floorGroups[this.activeFloor];
+    if (!group) return null;
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    this.pointer.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+    this.pointer.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+    this.raycaster.setFromCamera(this.pointer, this.camera);
+    const hits = this.raycaster.intersectObject(group, true);
+    for (const h of hits) {
+      let cur: THREE.Object3D | null = h.object;
+      while (cur) {
+        const id = cur.userData?.furnitureId as string | undefined;
+        if (id) return { id, object: cur };
+        cur = cur.parent;
+      }
+    }
+    return null;
+  }
+
+  getFurnitureObject(id: string): THREE.Object3D | undefined {
+    return this.floors[this.activeFloor]?.furnitureById.get(id);
+  }
+
+  /** Highlight a selected object with a bounding box, or clear it. */
+  setSelection(obj: THREE.Object3D | null): void {
+    if (this.selectionHelper) {
+      this.scene.remove(this.selectionHelper);
+      this.selectionHelper.geometry.dispose();
+      this.selectionHelper = undefined;
+    }
+    if (obj) {
+      this.selectionHelper = new THREE.BoxHelper(obj, 0x4fd06a);
+      this.scene.add(this.selectionHelper);
     }
   }
 

@@ -11,10 +11,11 @@
 // ---------------------------------------------------------------------------
 
 import * as THREE from 'three';
-import type { FloorPlan, Vec2 } from '../types';
+import type { FloorPlan, FloorDef, Vec2 } from '../types';
 import type { SceneManager } from '../scene/scene-manager';
+import { defaultY } from '../furniture/library';
 
-export type EditTool = 'orbit' | 'wall';
+export type EditTool = 'orbit' | 'wall' | 'furniture' | 'select';
 
 const SNAP = 0.1; // grid snap, meters
 const CLOSE_DIST = 0.4; // distance to first point that closes a room
@@ -26,6 +27,10 @@ export class EditorController {
   floorIndex = 0;
   tool: EditTool = 'wall';
   onChange?: () => void;
+  /** Furniture model to drop with the furniture tool. */
+  selectedModel = 'sofa';
+  /** Currently selected placement id (select tool). */
+  selectedId: string | null = null;
 
   private sm: SceneManager;
   private points: Vec2[] = [];
@@ -54,9 +59,87 @@ export class EditorController {
 
   setTool(t: EditTool): void {
     this.tool = t;
-    // Wall tool: disable orbit so a tap draws; zoom stays on. Orbit tool: free camera.
+    // Orbit tool: free camera. Other tools: taps act on the scene; zoom stays on.
     this.sm.setControlsEnabled(t === 'orbit');
     if (t !== 'wall') this.cancelChain();
+    if (t !== 'select') this.select(null);
+    this.onChange?.();
+  }
+
+  private floor(): FloorDef {
+    return this.plan.floors[this.floorIndex];
+  }
+
+  get selectedEntity(): string | null {
+    if (!this.selectedId) return null;
+    const b = this.floor().bindings?.find((x) => x.anchor_object === this.selectedId);
+    return b?.entity_id ?? null;
+  }
+
+  // -- Furniture / selection --------------------------------------------------
+
+  private placeFurniture(p: THREE.Vector3): void {
+    const fl = this.floor();
+    if (!fl.furniture) fl.furniture = [];
+    const wh = fl.wallHeight ?? this.plan.wallHeight ?? 2.6;
+    const id = `f${fl.furniture.length}_${Math.floor(performance.now() % 100000)}`;
+    fl.furniture.push({
+      model: this.selectedModel,
+      position: [snap(p.x), defaultY(this.selectedModel, wh), snap(p.z)],
+      rotation: 0,
+      id,
+    });
+    this.rebuild();
+    this.select(id);
+    this.onChange?.();
+  }
+
+  private moveSelected(p: THREE.Vector3): void {
+    const f = this.floor().furniture?.find((x) => x.id === this.selectedId);
+    if (!f) return;
+    f.position = [snap(p.x), f.position[1], snap(p.z)];
+    this.rebuild();
+    this.select(this.selectedId);
+    this.onChange?.();
+  }
+
+  select(id: string | null): void {
+    this.selectedId = id;
+    const obj = id ? this.sm.getFurnitureObject(id) : null;
+    this.sm.setSelection(obj ?? null);
+    this.onChange?.();
+  }
+
+  rotateSelected(): void {
+    const f = this.floor().furniture?.find((x) => x.id === this.selectedId);
+    if (!f) return;
+    f.rotation = ((f.rotation ?? 0) + 45) % 360;
+    this.rebuild();
+    this.select(this.selectedId);
+    this.onChange?.();
+  }
+
+  deleteSelected(): void {
+    if (!this.selectedId) return;
+    const fl = this.floor();
+    fl.furniture = (fl.furniture ?? []).filter((x) => x.id !== this.selectedId);
+    fl.bindings = (fl.bindings ?? []).filter((b) => b.anchor_object !== this.selectedId);
+    this.selectedId = null;
+    this.sm.setSelection(null);
+    this.rebuild();
+    this.onChange?.();
+  }
+
+  bindEntity(entityId: string | null): void {
+    if (!this.selectedId) return;
+    const fl = this.floor();
+    if (!fl.bindings) fl.bindings = [];
+    fl.bindings = fl.bindings.filter((b) => b.anchor_object !== this.selectedId);
+    if (entityId) {
+      fl.bindings.push({ entity_id: entityId, anchor_object: this.selectedId, behavior: 'auto' });
+    }
+    this.rebuild();
+    this.select(this.selectedId);
     this.onChange?.();
   }
 
@@ -73,13 +156,24 @@ export class EditorController {
   private applySceneEditState(): void {
     this.sm.setEditMode(true, this.elevation());
     this.sm.setGroundHandler({
-      click: (p) => this.onClick(p),
+      click: (p, e) => this.onClick(p, e),
       move: (p) => this.onMove(p),
     });
     this.sm.setControlsEnabled(this.tool === 'orbit');
   }
 
-  private onClick(p: THREE.Vector3): void {
+  private onClick(p: THREE.Vector3, e?: PointerEvent): void {
+    if (this.tool === 'furniture') {
+      this.placeFurniture(p);
+      return;
+    }
+    if (this.tool === 'select') {
+      const hit = e ? this.sm.pickFurniture(e) : null;
+      if (hit) this.select(hit.id);
+      else if (this.selectedId) this.moveSelected(p);
+      else this.select(null);
+      return;
+    }
     if (this.tool !== 'wall') return;
     const pt: Vec2 = [snap(p.x), snap(p.z)];
     if (this.points.length >= 2) {
@@ -126,6 +220,8 @@ export class EditorController {
     this.plan = plan;
     this.floorIndex = 0;
     this.cancelChain();
+    this.selectedId = null;
+    this.sm.setSelection(null);
     this.sm.loadPlan(plan, true);
     this.applySceneEditState();
     this.onChange?.();

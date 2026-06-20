@@ -192,6 +192,225 @@ const builders: Record<string, FurnitureBuilder> = {
     g.add(scr);
     return g;
   },
+  armchair: (c) => {
+    const g = new THREE.Group();
+    const f = mat(FABRIC);
+    g.add(tint(box(0.85, 0.4, 0.85, f, 0, 0.2, 0), c));
+    g.add(tint(box(0.85, 0.5, 0.18, f, 0, 0.55, -0.33), c));
+    g.add(tint(box(0.16, 0.45, 0.85, f, -0.42, 0.5, 0), c));
+    g.add(tint(box(0.16, 0.45, 0.85, f, 0.42, 0.5, 0), c));
+    return g;
+  },
+  coffee_table: (c) => {
+    const g = new THREE.Group();
+    g.add(tint(box(1.0, 0.05, 0.55, mat(WOOD), 0, 0.4, 0), c));
+    for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]] as const)
+      g.add(box(0.06, 0.4, 0.06, mat(WOOD), sx * 0.42, 0.2, sz * 0.22));
+    return g;
+  },
+  dining_table: (c) => {
+    const g = new THREE.Group();
+    g.add(tint(box(1.8, 0.06, 0.95, mat(WOOD), 0, 0.75, 0), c));
+    for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]] as const)
+      g.add(box(0.08, 0.75, 0.08, mat(WOOD), sx * 0.8, 0.37, sz * 0.4));
+    return g;
+  },
+  bookshelf: (c) => {
+    const g = new THREE.Group();
+    g.add(tint(box(1.0, 1.8, 0.32, mat(WOOD), 0, 0.9, 0), c));
+    for (let i = 1; i <= 4; i++) g.add(box(0.94, 0.03, 0.3, mat(DARK), 0, i * 0.36, 0));
+    return g;
+  },
+  desk: (c) => {
+    const g = new THREE.Group();
+    g.add(tint(box(1.3, 0.05, 0.65, mat(WOOD), 0, 0.74, 0), c));
+    g.add(box(0.5, 0.7, 0.6, mat(DARK), 0.35, 0.37, 0)); // drawers
+    g.add(box(0.05, 0.74, 0.6, mat(WOOD), -0.6, 0.37, 0)); // leg panel
+    return g;
+  },
+  office_chair: (c) => {
+    const g = new THREE.Group();
+    g.add(tint(box(0.5, 0.06, 0.5, mat(DARK), 0, 0.5, 0), c));
+    g.add(tint(box(0.5, 0.5, 0.06, mat(DARK), 0, 0.78, -0.22), c));
+    g.add(cyl(0.04, 0.04, 0.45, mat(METAL), 0, 0.25, 0));
+    g.add(cyl(0.26, 0.26, 0.04, mat(METAL), 0, 0.04, 0));
+    return g;
+  },
+  nightstand: (c) => {
+    const g = new THREE.Group();
+    g.add(tint(box(0.45, 0.5, 0.4, mat(WOOD), 0, 0.25, 0), c));
+    g.add(box(0.4, 0.02, 0.02, mat(METAL), 0, 0.32, 0.21));
+    return g;
+  },
+  dresser: (c) => {
+    const g = new THREE.Group();
+    g.add(tint(box(1.1, 0.85, 0.5, mat(WOOD), 0, 0.42, 0), c));
+    for (let i = 0; i < 3; i++) g.add(box(0.9, 0.02, 0.02, mat(METAL), 0, 0.2 + i * 0.25, 0.26));
+    return g;
+  },
+  stove: (c) => {
+    const g = new THREE.Group();
+    g.add(tint(box(0.6, 0.85, 0.6, mat(METAL), 0, 0.42, 0), c));
+    g.add(box(0.55, 0.02, 0.55, mat(DARK), 0, 0.86, 0)); // cooktop
+    for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]] as const)
+      g.add(cyl(0.08, 0.08, 0.01, mat(0x222222), sx * 0.13, 0.875, sz * 0.13));
+    return g;
+  },
+  microwave: (c) => {
+    const g = new THREE.Group();
+    g.add(tint(box(0.5, 0.3, 0.35, mat(DARK), 0, 0.15, 0), c));
+    g.add(box(0.32, 0.22, 0.01, mat(0x101418, { emissive: 0x0a1a22 }), -0.05, 0.15, 0.18));
+    return g;
+  },
+  dishwasher: (c) => {
+    const g = new THREE.Group();
+    g.add(tint(box(0.6, 0.85, 0.6, mat(METAL), 0, 0.42, 0), c));
+    g.add(box(0.5, 0.02, 0.02, mat(DARK), 0, 0.75, 0.31));
+    return g;
+  },
+  washing_machine: (c) => {
+    const g = new THREE.Group();
+    g.add(tint(box(0.6, 0.85, 0.6, mat(WHITE), 0, 0.42, 0), c));
+    g.add(cyl(0.2, 0.2, 0.04, mat(DARK), 0, 0.45, 0.31).rotateX(Math.PI / 2) as unknown as THREE.Mesh);
+    return g;
+  },
+  bathtub: (c) => {
+    const g = new THREE.Group();
+    g.add(tint(box(1.6, 0.55, 0.75, mat(WHITE), 0, 0.275, 0), c));
+    g.add(box(1.45, 0.2, 0.6, mat(0xdfeef2), 0, 0.4, 0)); // water/inside
+    return g;
+  },
+  shower: (c) => {
+    const g = new THREE.Group();
+    g.add(tint(box(0.9, 0.04, 0.9, mat(WHITE), 0, 0.02, 0), c)); // tray
+    g.add(box(0.04, 2.0, 0.9, mat(GLASS, { transparent: true, opacity: 0.25 }), -0.43, 1.0, 0));
+    g.add(box(0.9, 2.0, 0.04, mat(GLASS, { transparent: true, opacity: 0.25 }), 0, 1.0, -0.43));
+    g.add(cyl(0.06, 0.06, 0.04, mat(METAL), 0.3, 1.9, 0.3));
+    return g;
+  },
+  mirror: (c) => {
+    const g = new THREE.Group();
+    g.add(tint(box(0.6, 0.9, 0.04, mat(METAL), 0, 0, 0), c));
+    g.add(box(0.5, 0.8, 0.01, mat(0xaad4e0, { metalness: 0.9, roughness: 0.1 }), 0, 0, 0.03));
+    return g;
+  },
+  plant: (c) => {
+    const g = new THREE.Group();
+    g.add(cyl(0.16, 0.2, 0.3, mat(0x8a5a30), 0, 0.15, 0));
+    g.add(tint(new THREE.Mesh(new THREE.IcosahedronGeometry(0.32, 0), mat(0x3f7d3f)), c).translateY(0.6) as THREE.Mesh);
+    return g;
+  },
+  rug: (c) => {
+    const g = new THREE.Group();
+    g.add(tint(box(2.0, 0.02, 1.4, mat(0x884444), 0, 0.012, 0), c));
+    return g;
+  },
+  stairs: (c) => {
+    const g = new THREE.Group();
+    const steps = 8;
+    for (let i = 0; i < steps; i++)
+      g.add(tint(box(1.0, 0.18, 0.3, mat(WOOD), 0, 0.09 + i * 0.18, -i * 0.3), c));
+    return g;
+  },
+  curtain: (c) => {
+    const g = new THREE.Group();
+    g.add(tint(box(1.4, 1.8, 0.05, mat(FABRIC), 0, 1.4, 0), c));
+    return g;
+  },
+  painting: (c) => {
+    const g = new THREE.Group();
+    g.add(tint(box(0.7, 0.5, 0.04, mat(WOOD), 0, 0, 0), c));
+    g.add(box(0.6, 0.4, 0.01, mat(0x6688aa), 0, 0, 0.03));
+    return g;
+  },
+  speaker: (c) => {
+    const g = new THREE.Group();
+    g.add(tint(box(0.25, 0.4, 0.25, mat(DARK), 0, 0.2, 0), c));
+    g.add(cyl(0.08, 0.08, 0.01, mat(0x111111), 0, 0.26, 0.13).rotateX(Math.PI / 2) as unknown as THREE.Mesh);
+    return g;
+  },
+  security_camera: (c) => {
+    const g = new THREE.Group();
+    g.add(tint(cyl(0.06, 0.06, 0.18, mat(WHITE), 0, 0, 0), c));
+    const lens = cyl(0.04, 0.04, 0.04, mat(0x101418, { emissive: 0x300000 }), 0, 0, 0.1);
+    lens.name = 'emissive';
+    lens.rotateX(Math.PI / 2);
+    g.add(lens);
+    return g;
+  },
+  radiator: (c) => {
+    const g = new THREE.Group();
+    for (let i = 0; i < 8; i++) g.add(tint(box(0.06, 0.6, 0.1, mat(WHITE), -0.35 + i * 0.1, 0.4, 0), c));
+    return g;
+  },
+
+  // ---- Lighting (освещение) — each has an 'emissive' mesh + reads as a lamp ----
+  floor_lamp: (c) => {
+    const g = new THREE.Group();
+    g.add(cyl(0.18, 0.22, 0.03, mat(METAL), 0, 0.015, 0)); // base
+    g.add(cyl(0.02, 0.02, 1.5, mat(METAL), 0, 0.75, 0)); // pole
+    const shade = cyl(0.18, 0.25, 0.28, mat(0xfff4d6, { emissive: 0x000000 }), 0, 1.55, 0);
+    shade.name = 'emissive';
+    g.add(tint(shade, c));
+    return g;
+  },
+  table_lamp: (c) => {
+    const g = new THREE.Group();
+    g.add(cyl(0.1, 0.12, 0.03, mat(METAL), 0, 0.015, 0));
+    g.add(cyl(0.015, 0.015, 0.3, mat(METAL), 0, 0.18, 0));
+    const shade = cyl(0.12, 0.16, 0.18, mat(0xfff4d6, { emissive: 0x000000 }), 0, 0.42, 0);
+    shade.name = 'emissive';
+    g.add(tint(shade, c));
+    return g;
+  },
+  wall_light: (c) => {
+    const g = new THREE.Group();
+    g.add(box(0.12, 0.2, 0.08, mat(METAL), 0, 0, 0));
+    const glow = box(0.1, 0.16, 0.04, mat(0xfff4d6, { emissive: 0x000000 }), 0, 0, 0.06);
+    glow.name = 'emissive';
+    g.add(tint(glow, c));
+    return g;
+  },
+  chandelier: (c) => {
+    const g = new THREE.Group();
+    g.add(cyl(0.01, 0.01, 0.3, mat(METAL), 0, 0.15, 0));
+    g.add(cyl(0.25, 0.3, 0.04, mat(METAL), 0, 0, 0));
+    for (let i = 0; i < 6; i++) {
+      const a = (i / 6) * Math.PI * 2;
+      const bulb = new THREE.Mesh(
+        new THREE.SphereGeometry(0.06, 10, 10),
+        mat(0xfff4d6, { emissive: 0x000000 }),
+      );
+      bulb.name = 'emissive';
+      bulb.position.set(Math.cos(a) * 0.28, -0.05, Math.sin(a) * 0.28);
+      g.add(tint(bulb, c));
+    }
+    return g;
+  },
+  spotlight: (c) => {
+    const g = new THREE.Group();
+    g.add(cyl(0.05, 0.07, 0.06, mat(METAL), 0, 0, 0));
+    const lens = cyl(0.05, 0.05, 0.01, mat(0xfff4d6, { emissive: 0x000000 }), 0, -0.03, 0);
+    lens.name = 'emissive';
+    g.add(tint(lens, c));
+    return g;
+  },
+  pendant_light: (c) => {
+    const g = new THREE.Group();
+    g.add(cyl(0.008, 0.008, 0.4, mat(DARK), 0, 0.2, 0));
+    const shade = cyl(0.16, 0.05, 0.2, mat(0xfff4d6, { emissive: 0x000000 }), 0, -0.1, 0);
+    shade.name = 'emissive';
+    g.add(tint(shade, c));
+    return g;
+  },
+  led_strip: (c) => {
+    const g = new THREE.Group();
+    const strip = box(1.5, 0.03, 0.04, mat(0xffffff, { emissive: 0x000000 }), 0, 0, 0);
+    strip.name = 'emissive';
+    g.add(tint(strip, c));
+    return g;
+  },
+
   // Generic fallback marker so an unknown model key still renders something.
   marker: (c) => {
     const g = new THREE.Group();
@@ -201,6 +420,30 @@ const builders: Record<string, FurnitureBuilder> = {
 };
 
 export const FURNITURE_KEYS = Object.keys(builders).filter((k) => k !== 'marker');
+
+/** Lighting fixtures (have an emissive mesh; bind a light.* entity to them). */
+export const LIGHT_KEYS = [
+  'ceiling_light',
+  'floor_lamp',
+  'table_lamp',
+  'wall_light',
+  'chandelier',
+  'spotlight',
+  'pendant_light',
+  'led_strip',
+];
+
+/** Default vertical offset (meters) so a placed piece sits naturally. Lights
+ *  default to near the ceiling; everything else on the floor. */
+export function defaultY(model: string, wallHeight = 2.6): number {
+  if (model === 'ceiling_light' || model === 'chandelier' || model === 'pendant_light')
+    return wallHeight - 0.05;
+  if (model === 'spotlight' || model === 'led_strip') return wallHeight - 0.02;
+  if (model === 'wall_light' || model === 'ac_unit' || model === 'security_camera') return 2.0;
+  if (model === 'painting' || model === 'mirror' || model === 'tv' || model === 'intercom') return 1.4;
+  if (model === 'curtain') return 0.1;
+  return 0;
+}
 
 export function buildFurniture(model: string, color?: string): THREE.Group {
   const builder = builders[model] ?? builders.marker;

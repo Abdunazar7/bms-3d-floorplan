@@ -158,10 +158,17 @@ plane, height extrudes up `+Y`.
 **Binding behaviors:** `auto` (derive from domain), `light`, `switch`, `climate`,
 `sensor`, `binary_sensor`, `lock`, `media_player`, `cover`, `fan`, `label`.
 
-**Furniture models:** `sofa`, `bed`, `table`, `chair`, `wardrobe`,
-`kitchen_counter`, `tv`, `fridge`, `sink`, `toilet`, `door`, `window_frame`,
-`ceiling_light`, `ac_unit`, `intercom`. Set `glb` to a `.glb` path to use a
-custom model instead.
+**Furniture models (40+):** seating & tables — `sofa`, `armchair`, `chair`,
+`office_chair`, `table`, `coffee_table`, `dining_table`, `desk`, `bed`,
+`nightstand`; storage — `wardrobe`, `dresser`, `bookshelf`; kitchen —
+`kitchen_counter`, `fridge`, `stove`, `oven`, `microwave`, `dishwasher`,
+`sink`; bathroom — `toilet`, `bathtub`, `shower`, `mirror`; laundry/utility —
+`washing_machine`, `radiator`; decor — `tv`, `speaker`, `plant`, `rug`,
+`painting`, `curtain`, `stairs`, `security_camera`, `intercom`, `ac_unit`,
+`door`, `window_frame`. **Lighting:** `ceiling_light`, `floor_lamp`,
+`table_lamp`, `wall_light`, `chandelier`, `spotlight`, `pendant_light`,
+`led_strip` (bind a `light.*` entity to any of these). Set `glb` to a `.glb`
+path to use a custom model instead.
 
 ## Tablet / kiosk notes
 
@@ -191,26 +198,29 @@ and buttons to simulate live state changes.
 Tap **✎ Edit** (top-right) to draw your floor plan directly in the 3D view —
 no JSON, no YAML, no external modeling tool:
 
-- **Draw wall** — tap the floor to place wall points (snapped to a 10 cm grid);
+- **▟ Wall** — tap the floor to place wall points (snapped to a 10 cm grid);
   walls extrude up live. Tap near the first point (green ring) to close a room.
-- **Finish** ends an open run of walls; **Undo** removes the last point.
-- **Move view** temporarily frees the camera (orbit/pan) without drawing.
-- **New** starts a blank plan; **Save** stores it.
-- **✓ Done** returns to View mode.
+  **Finish** ends an open run; **Undo** removes the last point.
+- **🛋 Furniture** — pick a model (40+ pieces incl. lighting) from the dropdown,
+  tap the floor to place it.
+- **☝ Select** — tap a piece to select it (green box). Tap the floor to move it,
+  **⟳ Rotate** 45°, **🗑 Delete**, or bind a Home Assistant entity to it via the
+  **entity dropdown** (searchable, all your HA entities — no YAML).
+- **✋ View** temporarily frees the camera (orbit/pan) without editing.
+- **New** starts a blank plan; **Save** stores it; **✓ Done** returns to View.
 
 Saved plans go to **Home Assistant's per-user storage** (shared across all your
 devices — design PC and kiosk tablet), with a localStorage fallback. No backend
 or files required. With no `plan`/`url`/`projects` configured, the card loads
 your saved plan automatically, falling back to a built-in demo.
 
-> Furniture placement and tap-to-bind entity selection (HA entity dropdown) are
-> the next editor increment.
-
 ## Roadmap
 
 - **Phase 1 (done):** render + bind + touch hardening + config editor.
-- **Phase 2 (in progress):** in-app 3D editor — ✅ wall drawing + HA-shared
-  save; next: furniture palette + entity-picker binding in 3D.
+- **Phase 2 (done):** in-app 3D editor — wall drawing, 40+ furniture & lighting
+  palette, place/move/rotate/delete, tap-to-bind entity picker, HA-shared save.
+- **Next:** multi-floor editing in the editor, opening (door/window) tool,
+  per-piece color picker, undo/redo.
 - **Stretch:** optional Node backend for versioned project files + GLB export.
 
 ## License

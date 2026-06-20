@@ -208,12 +208,22 @@ function openOverlay(s: SidebarSettings): void {
   // Keep hass fresh; the card diffs by reference per entity so this is cheap.
   const timer = window.setInterval(() => {
     if (ha?.hass) card.hass = ha.hass;
+    if (location.pathname !== startPath) dispose();
   }, 1000);
+
+  // Close automatically when the user navigates to another sidebar panel, so
+  // other items work normally (no need to press ✕ first).
+  const startPath = location.pathname;
+  const onNav = () => {
+    if (location.pathname !== startPath) dispose();
+  };
 
   const dispose = () => {
     window.clearInterval(timer);
     window.clearInterval(offsetTimer);
     window.removeEventListener('resize', applyOffset);
+    window.removeEventListener('location-changed', onNav);
+    window.removeEventListener('popstate', onNav);
     offsetRO?.disconnect();
     overlay.remove();
     document.removeEventListener('keydown', onKey);
@@ -221,6 +231,8 @@ function openOverlay(s: SidebarSettings): void {
   const onKey = (e: KeyboardEvent) => {
     if (e.key === 'Escape') dispose();
   };
+  window.addEventListener('location-changed', onNav);
+  window.addEventListener('popstate', onNav);
   close.addEventListener('click', dispose);
   document.addEventListener('keydown', onKey);
 
