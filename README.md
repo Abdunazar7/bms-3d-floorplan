@@ -93,6 +93,42 @@ projects:
 
 A complete two-floor example lives in [`examples/home.json`](examples/home.json).
 
+## Sidebar (side panel) entry
+
+Once the resource is installed, a **3D Floor Plan** item is added to the HA
+left sidebar **automatically** — no dashboard or YAML needed. Tapping it opens
+the floor plan fullscreen. By default it loads `/local/floorplans/home.json`.
+
+Customize or disable it by defining `window.ha3dFloorplan` before the resource
+loads (e.g. a tiny `/config/www/ha-3d-floorplan-config.js` added as a second
+`type: module` resource):
+
+```js
+window.ha3dFloorplan = {
+  sidebar: true,                 // false to disable the auto sidebar item
+  title: '3D Floor Plan',
+  icon: 'mdi:floor-plan',
+  url: '/local/floorplans/home.json',
+  // or full config: config: { type: 'custom:ha-3d-floorplan-card', url: '...' }
+};
+```
+
+> The auto-injection hooks the sidebar DOM (HA has no supported frontend-only
+> sidebar API). It re-injects itself if HA re-renders the sidebar, and degrades
+> gracefully if a future HA version changes the structure. For a guaranteed,
+> officially-supported sidebar entry, use **`panel_custom`** instead:
+
+```yaml
+# configuration.yaml
+panel_custom:
+  - name: ha-3d-floorplan-card
+    sidebar_title: 3D Floor Plan
+    sidebar_icon: mdi:floor-plan
+    module_url: /local/ha-3d-floorplan-card.js
+    config:
+      url: /local/floorplans/home.json
+```
+
 ## Config reference
 
 | Key | Type | Description |

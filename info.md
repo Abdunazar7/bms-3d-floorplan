@@ -2,6 +2,7 @@
 
 Interactive true-3D floor plan for Home Assistant with live entity bindings.
 
+- Auto-adds a "3D Floor Plan" item to the HA sidebar (no YAML needed).
 - No entity-count caps.
 - Tablet-proof touch controls with a one-tap Reset view.
 - Multi-floor and multi-building support.

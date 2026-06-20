@@ -13,6 +13,7 @@ import type {
 import { SceneManager, ClickResult } from './scene/scene-manager';
 import { clickToService } from './scene/bindings';
 import { CARD_VERSION } from './version';
+import { installSidebar } from './sidebar';
 
 @customElement('ha-3d-floorplan-card')
 export class Ha3dFloorplanCard extends LitElement {
@@ -388,6 +389,10 @@ console.info(
   'color:#fff;background:#03a9f4;border-radius:4px 0 0 4px;padding:2px 6px',
   'color:#03a9f4;background:#222;border-radius:0 4px 4px 0;padding:2px 6px',
 );
+
+// Auto-add a sidebar entry (frontend-only, no YAML). Disable with
+// `window.ha3dFloorplan = { sidebar: false }`. See src/sidebar.ts.
+installSidebar();
 
 declare global {
   interface HTMLElementTagNameMap {
