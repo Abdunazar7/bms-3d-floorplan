@@ -337,10 +337,24 @@ export class Ha3dFloorplanCard extends LitElement {
     this.editor?.deleteSelected();
   }
 
-  private onBindEntity(e: CustomEvent): void {
-    const entityId = (e.detail?.value as string) || null;
+  private onPickEntity(e: Event): void {
+    const entityId = (e.target as HTMLSelectElement).value || null;
     this.editor?.bindEntity(entityId);
     this.showToast(entityId ? `Bound ${entityId}` : 'Binding cleared');
+  }
+
+  /** Entity ids for the selected piece, filtered by its natural domain(s). */
+  private candidateEntities(domains: string[]): string[] {
+    if (!this.hass) return [];
+    const ids = Object.keys(this.hass.states).filter(
+      (id) => !domains.length || domains.includes(id.split('.')[0]),
+    );
+    ids.sort((a, b) => this.entityLabel(a).localeCompare(this.entityLabel(b)));
+    return ids;
+  }
+
+  private entityLabel(id: string): string {
+    return this.hass?.states[id]?.attributes?.friendly_name || id;
   }
 
   private async onSavePlan(): Promise<void> {
@@ -454,18 +468,26 @@ export class Ha3dFloorplanCard extends LitElement {
                   const domains = this.editSelectedObjModel
                     ? entityDomainsFor(this.editSelectedObjModel)
                     : [];
+                  const ids = this.candidateEntities(domains);
                   return html`<div class="toolrow">
-                      <ha-entity-picker
-                        .hass=${this.hass}
-                        .value=${this.editSelectedEntity ?? ''}
-                        .includeDomains=${domains.length ? domains : undefined}
-                        allow-custom-entity
-                        @value-changed=${this.onBindEntity}
-                      ></ha-entity-picker>
+                      <select class="select wide" @change=${this.onPickEntity}>
+                        <option value="" ?selected=${!this.editSelectedEntity}>
+                          — bind entity —
+                        </option>
+                        ${ids.map(
+                          (id) => html`<option value=${id} ?selected=${id === this.editSelectedEntity}>
+                            ${this.entityLabel(id)}
+                          </option>`,
+                        )}
+                      </select>
                     </div>
-                    ${domains.length
-                      ? html`<span class="hint">showing ${domains.join(', ')} entities for this ${this.editSelectedObjModel?.replace(/_/g, ' ')}</span>`
-                      : nothing}`;
+                    <span class="hint">
+                      ${this.editSelectedEntity
+                        ? `bound: ${this.editSelectedEntity}`
+                        : domains.length
+                          ? `${ids.length} ${domains.join(' / ')} entities`
+                          : `${ids.length} entities`}
+                    </span>`;
                 })()
               : nothing}`
           : nothing}
