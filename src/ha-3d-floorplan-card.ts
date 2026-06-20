@@ -18,6 +18,7 @@ import { DEMO_PLAN } from './scene/demo-plan';
 import { EditorController, EditTool } from './editor/editor-controller';
 import { loadPlan as loadStoredPlan, savePlan, blankPlan } from './storage';
 import { FURNITURE_KEYS, LIGHT_KEYS } from './furniture/library';
+import { getThumbnail } from './furniture/thumbnails';
 
 @customElement('ha-3d-floorplan-card')
 export class Ha3dFloorplanCard extends LitElement {
@@ -33,6 +34,7 @@ export class Ha3dFloorplanCard extends LitElement {
   @state() private editSelectedId: string | null = null;
   @state() private editSelectedModel = 'sofa';
   @state() private editSelectedEntity: string | null = null;
+  @state() private paletteOpen = false;
   @state() private toast?: string;
 
   @query('.viewport') private viewport?: HTMLDivElement;
@@ -298,10 +300,15 @@ export class Ha3dFloorplanCard extends LitElement {
     this.showToast('Blank plan — draw your walls');
   }
 
-  private onSelectModel(e: Event): void {
+  private pickModel(model: string): void {
     if (!this.editor) return;
-    this.editor.selectedModel = (e.target as HTMLSelectElement).value;
-    this.editSelectedModel = this.editor.selectedModel;
+    this.editor.selectedModel = model;
+    this.editSelectedModel = model;
+    this.paletteOpen = false;
+  }
+
+  private togglePalette(): void {
+    this.paletteOpen = !this.paletteOpen;
   }
 
   private onRotateSelected(): void {
@@ -351,6 +358,19 @@ export class Ha3dFloorplanCard extends LitElement {
     this.sceneManager?.stop();
   }
 
+  private renderPaletteCell(model: string, label: string) {
+    return html`
+      <button
+        class="palette-cell ${model === this.editSelectedModel ? 'active' : ''}"
+        title=${label}
+        @click=${() => this.pickModel(model)}
+      >
+        <img src=${getThumbnail(model)} alt="" />
+        <span>${label}</span>
+      </button>
+    `;
+  }
+
   private renderEditor() {
     const tool = this.editTool;
     const label = (k: string) =>
@@ -363,6 +383,10 @@ export class Ha3dFloorplanCard extends LitElement {
         <div class="toolrow">
           <button class="btn ${tool === 'wall' ? 'active' : ''}" title="Draw walls"
             @click=${() => this.onEditTool('wall')}>▟ Wall</button>
+          <button class="btn ${tool === 'door' ? 'active' : ''}" title="Add a door — tap a wall"
+            @click=${() => this.onEditTool('door')}>🚪 Door</button>
+          <button class="btn ${tool === 'window' ? 'active' : ''}" title="Add a window — tap a wall"
+            @click=${() => this.onEditTool('window')}>🪟 Window</button>
           <button class="btn ${tool === 'furniture' ? 'active' : ''}" title="Place furniture"
             @click=${() => this.onEditTool('furniture')}>🛋 Furniture</button>
           <button class="btn ${tool === 'select' ? 'active' : ''}" title="Select / move / bind"
@@ -382,20 +406,24 @@ export class Ha3dFloorplanCard extends LitElement {
 
         ${tool === 'furniture'
           ? html`<div class="toolrow">
-              <select class="select wide" @change=${this.onSelectModel} .value=${this.editSelectedModel}>
-                <optgroup label="Lighting">
-                  ${LIGHT_KEYS.map(
-                    (k) => html`<option value=${k} ?selected=${k === this.editSelectedModel}>${label(k)}</option>`,
-                  )}
-                </optgroup>
-                <optgroup label="Furniture">
-                  ${furnitureKeys.map(
-                    (k) => html`<option value=${k} ?selected=${k === this.editSelectedModel}>${label(k)}</option>`,
-                  )}
-                </optgroup>
-              </select>
+              <button class="btn palette-btn" title="Choose a model" @click=${this.togglePalette}>
+                <img class="palette-thumb" src=${getThumbnail(this.editSelectedModel)} alt="" />
+                ${label(this.editSelectedModel)} ▾
+              </button>
               <span class="hint">tap floor to place</span>
-            </div>`
+            </div>
+            ${this.paletteOpen
+              ? html`<div class="palette">
+                  <div class="palette-group">Lighting</div>
+                  <div class="palette-grid">
+                    ${LIGHT_KEYS.map((k) => this.renderPaletteCell(k, label(k)))}
+                  </div>
+                  <div class="palette-group">Furniture</div>
+                  <div class="palette-grid">
+                    ${furnitureKeys.map((k) => this.renderPaletteCell(k, label(k)))}
+                  </div>
+                </div>`
+              : nothing}`
           : nothing}
 
         ${hasSelection
@@ -417,6 +445,12 @@ export class Ha3dFloorplanCard extends LitElement {
 
         ${tool === 'select' && !this.editSelectedId
           ? html`<span class="hint">tap a piece to select; tap floor to move it</span>`
+          : nothing}
+        ${tool === 'door' || tool === 'window'
+          ? html`<span class="hint">tap a wall to add a ${tool}</span>`
+          : nothing}
+        ${tool === 'wall'
+          ? html`<span class="hint">tap floor for points · green node = walls join</span>`
           : nothing}
 
         <div class="toolrow">
@@ -589,6 +623,70 @@ export class Ha3dFloorplanCard extends LitElement {
     ha-entity-picker {
       width: 240px;
       max-width: 70vw;
+    }
+    .palette-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .palette-thumb {
+      width: 28px;
+      height: 28px;
+      border-radius: 4px;
+      background: rgba(255, 255, 255, 0.06);
+    }
+    .palette {
+      background: rgba(22, 24, 28, 0.96);
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      border-radius: 12px;
+      padding: 8px 10px;
+      max-height: 60vh;
+      overflow: auto;
+      backdrop-filter: blur(6px);
+      max-width: 340px;
+    }
+    .palette-group {
+      font-size: 12px;
+      font-weight: 600;
+      color: #9ab;
+      margin: 6px 2px 4px;
+    }
+    .palette-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, 76px);
+      gap: 6px;
+    }
+    .palette-cell {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 2px;
+      width: 76px;
+      padding: 4px;
+      border-radius: 8px;
+      border: 1px solid transparent;
+      background: rgba(255, 255, 255, 0.04);
+      color: #ddd;
+      font: inherit;
+      font-size: 10px;
+      cursor: pointer;
+    }
+    .palette-cell:hover {
+      background: rgba(255, 255, 255, 0.1);
+    }
+    .palette-cell.active {
+      border-color: var(--primary-color, #03a9f4);
+      background: rgba(3, 169, 244, 0.18);
+    }
+    .palette-cell img {
+      width: 64px;
+      height: 64px;
+    }
+    .palette-cell span {
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 68px;
     }
     .toast {
       position: absolute;

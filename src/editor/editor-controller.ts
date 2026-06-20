@@ -11,14 +11,15 @@
 // ---------------------------------------------------------------------------
 
 import * as THREE from 'three';
-import type { FloorPlan, FloorDef, Vec2 } from '../types';
+import type { FloorPlan, FloorDef, WallDef, Vec2 } from '../types';
 import type { SceneManager } from '../scene/scene-manager';
 import { defaultY } from '../furniture/library';
 
-export type EditTool = 'orbit' | 'wall' | 'furniture' | 'select';
+export type EditTool = 'orbit' | 'wall' | 'furniture' | 'select' | 'door' | 'window';
 
 const SNAP = 0.1; // grid snap, meters
 const CLOSE_DIST = 0.4; // distance to first point that closes a room
+const VERT_SNAP = 0.3; // snap a new point onto an existing wall endpoint
 
 const snap = (v: number) => Math.round(v / SNAP) * SNAP;
 
@@ -167,6 +168,10 @@ export class EditorController {
       this.placeFurniture(p);
       return;
     }
+    if (this.tool === 'door' || this.tool === 'window') {
+      this.addOpening(p, this.tool);
+      return;
+    }
     if (this.tool === 'select') {
       const hit = e ? this.sm.pickFurniture(e) : null;
       if (hit) this.select(hit.id);
@@ -175,7 +180,7 @@ export class EditorController {
       return;
     }
     if (this.tool !== 'wall') return;
-    const pt: Vec2 = [snap(p.x), snap(p.z)];
+    const { pt } = this.snapPoint(p.x, p.z);
     if (this.points.length >= 2) {
       const s = this.points[0];
       if (Math.hypot(pt[0] - s[0], pt[1] - s[1]) < CLOSE_DIST) {
@@ -193,8 +198,70 @@ export class EditorController {
 
   private onMove(p: THREE.Vector3): void {
     if (this.tool !== 'wall' || this.points.length === 0) return;
-    this.cursor = [snap(p.x), snap(p.z)];
+    this.cursor = this.snapPoint(p.x, p.z).pt;
     this.renderPreview();
+  }
+
+  /** Snap to a nearby existing wall endpoint (so walls connect), else grid. */
+  private snapPoint(x: number, z: number): { pt: Vec2; snapped: boolean } {
+    let best: Vec2 | null = null;
+    let bd = VERT_SNAP;
+    for (const c of [...this.existingEndpoints(), ...this.points]) {
+      const d = Math.hypot(x - c[0], z - c[1]);
+      if (d < bd) {
+        bd = d;
+        best = c;
+      }
+    }
+    if (best) return { pt: [best[0], best[1]], snapped: true };
+    return { pt: [snap(x), snap(z)], snapped: false };
+  }
+
+  private existingEndpoints(): Vec2[] {
+    const out: Vec2[] = [];
+    for (const w of this.floor().walls ?? []) {
+      out.push([w.start[0], w.start[1]], [w.end[0], w.end[1]]);
+    }
+    return out;
+  }
+
+  private isConnection(pt: Vec2): boolean {
+    return this.existingEndpoints().some(
+      (e) => Math.hypot(e[0] - pt[0], e[1] - pt[1]) < 1e-3,
+    );
+  }
+
+  /** Add a door/window opening to the wall nearest the tapped point. */
+  private addOpening(p: THREE.Vector3, kind: 'door' | 'window'): void {
+    const fl = this.floor();
+    let best: WallDef | null = null;
+    let bd = 0.6;
+    let along = 0;
+    let wallLen = 0;
+    for (const w of fl.walls ?? []) {
+      const ax = w.start[0], az = w.start[1], bx = w.end[0], bz = w.end[1];
+      const dx = bx - ax, dz = bz - az;
+      const len2 = dx * dx + dz * dz;
+      if (len2 < 1e-6) continue;
+      let t = ((p.x - ax) * dx + (p.z - az) * dz) / len2;
+      t = Math.max(0, Math.min(1, t));
+      const cx = ax + dx * t, cz = az + dz * t;
+      const d = Math.hypot(p.x - cx, p.z - cz);
+      if (d < bd) {
+        bd = d;
+        best = w;
+        const len = Math.sqrt(len2);
+        along = t * len;
+        wallLen = len;
+      }
+    }
+    if (!best) return;
+    if (!best.openings) best.openings = [];
+    const width = kind === 'door' ? 0.9 : 1.0;
+    const position = Math.max(0, Math.min(wallLen - width, along - width / 2));
+    best.openings.push({ kind, position, width });
+    this.rebuild();
+    this.onChange?.();
   }
 
   undoPoint(): void {
@@ -262,11 +329,14 @@ export class EditorController {
     const h = this.wallHeight();
     const chain = this.cursor ? [...this.points, this.cursor] : [...this.points];
 
-    // Vertices.
-    for (const p of this.points) {
+    // Vertices. Points that land on an existing wall endpoint get a larger
+    // green "connection" node so you can see two walls joining.
+    const nodes = this.cursor ? [...this.points, this.cursor] : [...this.points];
+    for (const p of nodes) {
+      const connected = this.isConnection(p);
       const dot = new THREE.Mesh(
-        new THREE.SphereGeometry(0.07, 10, 10),
-        new THREE.MeshBasicMaterial({ color: 0x44aaff }),
+        new THREE.SphereGeometry(connected ? 0.12 : 0.07, 12, 12),
+        new THREE.MeshBasicMaterial({ color: connected ? 0x4fd06a : 0x44aaff }),
       );
       dot.position.set(p[0], elev + 0.06, p[1]);
       group.add(dot);

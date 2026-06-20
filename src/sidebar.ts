@@ -80,9 +80,11 @@ function buildItem(s: SidebarSettings): HTMLAnchorElement {
     'padding:12px',
     'border-radius:12px',
     'cursor:pointer',
-    'color:var(--sidebar-icon-color, var(--primary-text-color, #888))',
+    // Match the other (unselected) sidebar items: white-ish text, medium weight.
+    'color:var(--sidebar-text-color, var(--primary-text-color, #e1e1e1))',
     'font:inherit',
     'font-size:14px',
+    'font-weight:500',
     'text-decoration:none',
     '-webkit-tap-highlight-color:transparent',
   ].join(';');
@@ -111,9 +113,10 @@ function inject(sidebar: HTMLElement, s: SidebarSettings): void {
   if (root.getElementById(ITEM_ID)) return; // already present
   const list = findList(sidebar);
   const item = buildItem(s);
-  if (list && list.parentNode) {
-    // Place just after the main navigation list.
-    list.parentNode.insertBefore(item, list.nextSibling);
+  if (list) {
+    // Append INTO the main navigation list so it sits inline with the other
+    // items (Intercom, Multimedia, …) rather than pinned above Settings.
+    list.appendChild(item);
   } else {
     root.appendChild(item);
   }
@@ -179,9 +182,11 @@ function openOverlay(s: SidebarSettings): void {
   const close = document.createElement('button');
   close.textContent = '✕';
   close.title = 'Close';
+  // Bottom-left so it never overlaps the editor toolbar (top-left) or the
+  // Reset/Done buttons (top-right). Esc and navigating to another panel also close.
   close.style.cssText = [
     'position:absolute',
-    'top:14px',
+    'bottom:14px',
     'left:14px',
     'z-index:10000',
     'width:42px',

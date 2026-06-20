@@ -199,10 +199,13 @@ Tap **✎ Edit** (top-right) to draw your floor plan directly in the 3D view —
 no JSON, no YAML, no external modeling tool:
 
 - **▟ Wall** — tap the floor to place wall points (snapped to a 10 cm grid);
-  walls extrude up live. Tap near the first point (green ring) to close a room.
-  **Finish** ends an open run; **Undo** removes the last point.
-- **🛋 Furniture** — pick a model (40+ pieces incl. lighting) from the dropdown,
-  tap the floor to place it.
+  walls extrude up live. Two points + **Finish** = one wall (no loop required).
+  New points snap onto existing wall endpoints, shown as a **green node** so
+  walls join cleanly. Tap near the first point to close a room. **Undo** removes
+  the last point.
+- **🚪 Door / 🪟 Window** — tap a wall to cut an opening at that spot.
+- **🛋 Furniture** — pick a model (40+ pieces incl. lighting) from a visual
+  palette with **thumbnails**, then tap the floor to place it.
 - **☝ Select** — tap a piece to select it (green box). Tap the floor to move it,
   **⟳ Rotate** 45°, **🗑 Delete**, or bind a Home Assistant entity to it via the
   **entity dropdown** (searchable, all your HA entities — no YAML).
