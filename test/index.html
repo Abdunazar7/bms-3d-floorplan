@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <!-- Kiosk meta: stop browser pinch-zoom on standalone pages. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+    <title>3D Floor Plan Card — local test</title>
+    <style>
+      body {
+        margin: 0;
+        font-family: system-ui, sans-serif;
+        background: #0f1115;
+        color: #ddd;
+      }
+      .wrap {
+        max-width: 900px;
+        margin: 24px auto;
+        padding: 0 16px;
+      }
+      h1 {
+        font-size: 18px;
+        font-weight: 600;
+      }
+      .controls {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin: 12px 0;
+      }
+      button {
+        font: inherit;
+        padding: 8px 12px;
+        border-radius: 8px;
+        border: 1px solid #333;
+        background: #1b1d22;
+        color: #ddd;
+        cursor: pointer;
+      }
+      button:hover {
+        background: #2a2d34;
+      }
+      /* Provide the HA card CSS vars the card references. */
+      ha-3d-floorplan-card {
+        --primary-color: #03a9f4;
+        --primary-text-color: #eee;
+        --card-background-color: #1b1d22;
+        --divider-color: #333;
+        display: block;
+      }
+      /* Minimal <ha-card> shim so the card renders standalone (HA provides this). */
+      ha-card {
+        display: block;
+        border-radius: 12px;
+        background: var(--card-background-color, #1b1d22);
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1>3D Floor Plan Card — local test harness</h1>
+      <div class="controls">
+        <button id="toggle-living">Toggle light.living_room</button>
+        <button id="toggle-kitchen">Toggle light.kitchen</button>
+        <button id="toggle-lock">Toggle lock.front_door</button>
+        <button id="bump-temp">Bump climate temp</button>
+        <button id="bump-sensor">Bump kitchen sensor</button>
+      </div>
+      <div id="card-host"></div>
+      <p style="font-size: 13px; color: #888">
+        Tap furniture (lamps, TV, the lock marker) to fire service calls — watch
+        the console. Use the floor tabs at the bottom and the Reset button
+        top-right. Serve this folder over HTTP (e.g. <code>npx serve</code> or
+        <code>python -m http.server</code>) so the example JSON can load.
+      </p>
+    </div>
+
+    <!-- ha-card shim: define a trivial element so the card's <ha-card> works. -->
+    <script>
+      if (!customElements.get('ha-card')) {
+        customElements.define(
+          'ha-card',
+          class extends HTMLElement {
+            constructor() {
+              super();
+            }
+          },
+        );
+      }
+    </script>
+
+    <script type="module">
+      import '../dist/ha-3d-floorplan-card.js';
+
+      // --- Mock hass object -------------------------------------------------
+      const states = {
+        'light.living_room': { entity_id: 'light.living_room', state: 'on', attributes: { friendly_name: 'Living Room', brightness: 200 } },
+        'light.kitchen': { entity_id: 'light.kitchen', state: 'off', attributes: { friendly_name: 'Kitchen' } },
+        'light.bedroom': { entity_id: 'light.bedroom', state: 'off', attributes: { friendly_name: 'Bedroom' } },
+        'switch.tv': { entity_id: 'switch.tv', state: 'on', attributes: { friendly_name: 'TV' } },
+        'climate.living_room': { entity_id: 'climate.living_room', state: 'cool', attributes: { friendly_name: 'AC', current_temperature: 23, temperature: 21 } },
+        'sensor.kitchen_temperature': { entity_id: 'sensor.kitchen_temperature', state: '22.5', attributes: { friendly_name: 'Kitchen Temp', unit_of_measurement: '°C' } },
+        'lock.front_door': { entity_id: 'lock.front_door', state: 'locked', attributes: { friendly_name: 'Front Door' } },
+        'binary_sensor.bathroom_motion': { entity_id: 'binary_sensor.bathroom_motion', state: 'off', attributes: { friendly_name: 'Bathroom Motion' } },
+      };
+
+      function makeHass() {
+        // New object + new states map so Lit/the card sees a change.
+        return {
+          states: { ...states },
+          callService: async (domain, service, data) => {
+            console.log('callService', domain, service, data);
+            const id = data?.entity_id;
+            if (!id || !states[id]) return;
+            if (service === 'toggle') {
+              states[id] = { ...states[id], state: states[id].state === 'on' ? 'off' : 'on' };
+            } else if (domain === 'lock') {
+              states[id] = { ...states[id], state: service === 'lock' ? 'locked' : 'unlocked' };
+            }
+            push();
+          },
+        };
+      }
+
+      const card = document.createElement('ha-3d-floorplan-card');
+      const plan = await (await fetch('../examples/home.json')).json();
+      card.setConfig({ type: 'custom:ha-3d-floorplan-card', height: '520px', plan });
+      document.getElementById('card-host').appendChild(card);
+
+      function push() {
+        card.hass = makeHass();
+      }
+      push();
+
+      // --- Test buttons -----------------------------------------------------
+      const flip = (id, on, off) => {
+        states[id] = { ...states[id], state: states[id].state === on ? off : on };
+        push();
+      };
+      document.getElementById('toggle-living').onclick = () => flip('light.living_room', 'on', 'off');
+      document.getElementById('toggle-kitchen').onclick = () => flip('light.kitchen', 'on', 'off');
+      document.getElementById('toggle-lock').onclick = () => flip('lock.front_door', 'locked', 'unlocked');
+      document.getElementById('bump-temp').onclick = () => {
+        const e = states['climate.living_room'];
+        states['climate.living_room'] = { ...e, attributes: { ...e.attributes, current_temperature: e.attributes.current_temperature + 1 } };
+        push();
+      };
+      document.getElementById('bump-sensor').onclick = () => {
+        const e = states['sensor.kitchen_temperature'];
+        states['sensor.kitchen_temperature'] = { ...e, state: (parseFloat(e.state) + 0.5).toFixed(1) };
+        push();
+      };
+    </script>
+  </body>
+</html>

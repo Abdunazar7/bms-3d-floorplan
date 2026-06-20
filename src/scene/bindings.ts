@@ -1,0 +1,302 @@
+// ---------------------------------------------------------------------------
+// Entity binding manager.
+//   - Resolves each BindingDef to a scene anchor (a furniture object or a point).
+//   - Reflects live state into the scene (emissive materials, point lights,
+//     floating text, lock/sensor colors) WITHOUT re-rendering the whole scene —
+//     only the changed objects are touched, so frame rate holds with hundreds
+//     of bound entities.
+//   - Maps taps to the right HA service call (or fires a more-info event).
+// ---------------------------------------------------------------------------
+
+import * as THREE from 'three';
+import type {
+  BindingDef,
+  BindingBehavior,
+  HomeAssistant,
+  HassEntity,
+} from '../types';
+import type { BuiltFloor } from './builder';
+import { TextLabel } from './labels';
+
+interface ActiveBinding {
+  def: BindingDef;
+  behavior: BindingBehavior;
+  anchor: THREE.Object3D | null;
+  worldPos: THREE.Vector3;
+  /** Meshes whose material should toggle emissive (lights/switches/media). */
+  emissiveMeshes: THREE.Mesh[];
+  pointLight?: THREE.PointLight;
+  label?: TextLabel;
+  lastState?: string;
+  /** Domain-default fan/cover spin handle. */
+  spin?: THREE.Object3D;
+}
+
+const TOGGLE_DOMAINS = new Set(['light', 'switch', 'fan', 'cover', 'media_player']);
+
+function domainOf(entityId: string): string {
+  return entityId.split('.')[0];
+}
+
+function behaviorFor(def: BindingDef): BindingBehavior {
+  if (def.behavior && def.behavior !== 'auto') return def.behavior;
+  return domainOf(def.entity_id) as BindingBehavior;
+}
+
+function collectEmissive(root: THREE.Object3D): THREE.Mesh[] {
+  const out: THREE.Mesh[] = [];
+  root.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (m.isMesh) {
+      // Prefer meshes explicitly named "emissive"; else take all.
+      if (m.name === 'emissive') out.unshift(m);
+      else out.push(m);
+    }
+  });
+  // If any explicitly-named emissive mesh exists, use only those.
+  const named = out.filter((m) => m.name === 'emissive');
+  return named.length ? named : out;
+}
+
+export class BindingManager {
+  private bindings: ActiveBinding[] = [];
+  private root: THREE.Group;
+  /** entity_id -> bindings (one entity may drive several anchors). */
+  private byEntity = new Map<string, ActiveBinding[]>();
+
+  constructor(root: THREE.Group) {
+    this.root = root;
+  }
+
+  /** Register all bindings for a freshly built floor. */
+  register(floor: BuiltFloor, defs: BindingDef[]): void {
+    for (const def of defs) {
+      const behavior = behaviorFor(def);
+      let anchor: THREE.Object3D | null = null;
+      const worldPos = new THREE.Vector3();
+
+      if (def.anchor_object && floor.furnitureById.has(def.anchor_object)) {
+        anchor = floor.furnitureById.get(def.anchor_object)!;
+        anchor.getWorldPosition(worldPos);
+      } else if (def.anchor) {
+        worldPos.set(def.anchor[0], def.anchor[1], def.anchor[2]);
+        worldPos.y += floor.group.position.y;
+      } else {
+        // No anchor — center of floor, raised a bit.
+        floor.bbox.getCenter(worldPos);
+        worldPos.y = floor.group.position.y + 1.5;
+      }
+
+      const ab: ActiveBinding = {
+        def,
+        behavior,
+        anchor,
+        worldPos,
+        emissiveMeshes: anchor ? collectEmissive(anchor) : [],
+      };
+
+      this.setupVisual(ab, floor);
+      this.bindings.push(ab);
+      if (!this.byEntity.has(def.entity_id)) this.byEntity.set(def.entity_id, []);
+      this.byEntity.get(def.entity_id)!.push(ab);
+
+      if (anchor) anchor.userData.bindingEntity = def.entity_id;
+    }
+  }
+
+  private setupVisual(ab: ActiveBinding, floor: BuiltFloor): void {
+    const { behavior, worldPos } = ab;
+
+    if (behavior === 'light') {
+      const light = new THREE.PointLight(0xfff1d0, 0, 8, 2);
+      light.position.copy(worldPos);
+      light.castShadow = false;
+      this.root.add(light);
+      ab.pointLight = light;
+    }
+
+    if (
+      behavior === 'climate' ||
+      behavior === 'sensor' ||
+      behavior === 'binary_sensor' ||
+      behavior === 'lock' ||
+      behavior === 'media_player' ||
+      behavior === 'label'
+    ) {
+      const label = new TextLabel(1.2);
+      const lift = ab.anchor ? 0.6 : 0;
+      label.setPosition(worldPos.x, worldPos.y + lift + 0.4, worldPos.z);
+      this.root.add(label.sprite);
+      floor.labels.push(label);
+      ab.label = label;
+    }
+
+    if (behavior === 'fan') {
+      ab.spin = ab.anchor ?? undefined;
+    }
+  }
+
+  /** Apply current HA state to all bindings. Only changed entities do work. */
+  update(hass: HomeAssistant): void {
+    for (const ab of this.bindings) {
+      const ent = hass.states[ab.def.entity_id];
+      this.applyState(ab, ent);
+    }
+  }
+
+  /** Targeted update for a single entity (used on subscribed state changes). */
+  updateEntity(entityId: string, hass: HomeAssistant): void {
+    const list = this.byEntity.get(entityId);
+    if (!list) return;
+    const ent = hass.states[entityId];
+    for (const ab of list) this.applyState(ab, ent);
+  }
+
+  private applyState(ab: ActiveBinding, ent?: HassEntity): void {
+    const state = ent?.state ?? 'unavailable';
+    const friendly =
+      ab.def.label ?? ent?.attributes?.friendly_name ?? ab.def.entity_id;
+
+    switch (ab.behavior) {
+      case 'light': {
+        const on = state === 'on';
+        const bright = (ent?.attributes?.brightness ?? 255) / 255;
+        if (ab.pointLight) ab.pointLight.intensity = on ? 2.5 * bright : 0;
+        this.setEmissive(ab, on ? 0xfff1d0 : 0x000000, on ? bright : 0);
+        break;
+      }
+      case 'switch':
+      case 'media_player': {
+        const on = state === 'on' || state === 'playing' || state === 'home';
+        this.setEmissive(ab, on ? 0x4fd06a : 0x000000, on ? 0.6 : 0);
+        if (ab.label && ab.behavior === 'media_player') {
+          ab.label.setText(state, on ? '#7CFC8A' : '#cccccc');
+        }
+        break;
+      }
+      case 'climate': {
+        const cur = ent?.attributes?.current_temperature;
+        const target = ent?.attributes?.temperature;
+        const txt =
+          cur != null
+            ? `${cur}°${target != null ? ` → ${target}°` : ''}`
+            : state;
+        ab.label?.setText(txt, '#9ad0ff');
+        break;
+      }
+      case 'sensor':
+      case 'label': {
+        const unit = ent?.attributes?.unit_of_measurement ?? '';
+        ab.label?.setText(`${friendlyShort(friendly)}: ${state}${unit}`, '#ffe7a0');
+        break;
+      }
+      case 'binary_sensor': {
+        const on = state === 'on';
+        ab.label?.setText(`${friendlyShort(friendly)}: ${on ? 'ON' : 'off'}`,
+          on ? '#ff8080' : '#bbbbbb');
+        this.setEmissive(ab, on ? 0xff5555 : 0x000000, on ? 0.5 : 0);
+        break;
+      }
+      case 'lock': {
+        const locked = state === 'locked';
+        ab.label?.setText(locked ? '🔒 locked' : '🔓 unlocked',
+          locked ? '#7CFC8A' : '#ff8080');
+        this.setEmissive(ab, locked ? 0x4fd06a : 0xff5555, 0.5);
+        break;
+      }
+      case 'cover': {
+        const open = state === 'open';
+        this.setEmissive(ab, open ? 0x4fd06a : 0x000000, open ? 0.4 : 0);
+        break;
+      }
+      case 'fan': {
+        ab.spin = state === 'on' ? ab.anchor ?? undefined : undefined;
+        break;
+      }
+    }
+    ab.lastState = state;
+  }
+
+  private setEmissive(ab: ActiveBinding, color: number, intensity: number): void {
+    for (const mesh of ab.emissiveMeshes) {
+      const mat = mesh.material as THREE.MeshStandardMaterial;
+      if (!mat || !('emissive' in mat)) continue;
+      mat.emissive.setHex(color);
+      mat.emissiveIntensity = intensity;
+      mat.needsUpdate = false; // color/intensity changes don't need recompile
+    }
+  }
+
+  /** Per-frame animation for fans etc. */
+  animate(delta: number): void {
+    for (const ab of this.bindings) {
+      if (ab.behavior === 'fan' && ab.spin) {
+        ab.spin.rotation.y += delta * 6;
+      }
+    }
+  }
+
+  /**
+   * Given a clicked Object3D, walk up to find a bound anchor and return the
+   * action to perform. Returns null if the object isn't bound.
+   */
+  resolveClick(obj: THREE.Object3D): { entity_id: string; behavior: BindingBehavior } | null {
+    let cur: THREE.Object3D | null = obj;
+    while (cur) {
+      const eid = cur.userData?.bindingEntity as string | undefined;
+      if (eid) {
+        const ab = this.byEntity.get(eid)?.[0];
+        return { entity_id: eid, behavior: ab?.behavior ?? 'auto' };
+      }
+      cur = cur.parent;
+    }
+    return null;
+  }
+
+  /** All anchor objects, for raycasting. */
+  get anchors(): THREE.Object3D[] {
+    return this.bindings.map((b) => b.anchor).filter((a): a is THREE.Object3D => !!a);
+  }
+
+  dispose(): void {
+    for (const ab of this.bindings) {
+      if (ab.pointLight) this.root.remove(ab.pointLight);
+    }
+    this.bindings = [];
+    this.byEntity.clear();
+  }
+}
+
+/** Map a click to a service call. Returns null if it should open more-info. */
+export function clickToService(
+  entityId: string,
+  behavior: BindingBehavior,
+): { domain: string; service: string; data: Record<string, any> } | null {
+  const domain = domainOf(entityId);
+  const data = { entity_id: entityId };
+  switch (behavior) {
+    case 'light':
+      return { domain: 'light', service: 'toggle', data };
+    case 'switch':
+      return { domain: 'switch', service: 'toggle', data };
+    case 'fan':
+      return { domain: 'fan', service: 'toggle', data };
+    case 'cover':
+      return { domain: 'cover', service: 'toggle', data };
+    case 'media_player':
+      return { domain: 'media_player', service: 'media_play_pause', data };
+    case 'lock':
+      // Toggle handled by caller (needs current state); fall through to more-info.
+      return null;
+    default:
+      // sensors/climate/etc. → open more-info
+      if (TOGGLE_DOMAINS.has(domain)) {
+        return { domain, service: 'toggle', data };
+      }
+      return null;
+  }
+}
+
+function friendlyShort(name: string): string {
+  return name.length > 18 ? name.slice(0, 16) + '…' : name;
+}
