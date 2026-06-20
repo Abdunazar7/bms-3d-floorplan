@@ -23,6 +23,9 @@ import { getThumbnail } from './furniture/thumbnails';
 @customElement('ha-3d-floorplan-card')
 export class Ha3dFloorplanCard extends LitElement {
   @property({ attribute: false }) public hass?: HomeAssistant;
+  // Set by HA when this element is used as a `panel_custom` sidebar panel.
+  @property({ attribute: false }) public panel?: { config?: Record<string, any> };
+  @property({ attribute: false }) public narrow?: boolean;
   @state() private config?: CardConfig;
   @state() private activeProjectId?: string;
   @state() private loadError?: string;
@@ -106,6 +109,13 @@ export class Ha3dFloorplanCard extends LitElement {
   // -- hass updates -----------------------------------------------------------
 
   protected override willUpdate(changed: PropertyValues): void {
+    // Used as a sidebar panel (panel_custom): take config from panel.config and
+    // fill the viewport. This path is reliable across refresh/tabs/devices.
+    if (changed.has('panel') && this.panel && !this.config) {
+      (window as any).__ha3dPanelMode = true; // tells the injector to stand down
+      const cfg = (this.panel.config ?? {}) as CardConfig;
+      this.setConfig({ height: '100vh', ...cfg, type: 'custom:ha-3d-floorplan-card' });
+    }
     if (changed.has('hass') && this.hass) {
       this.pendingHass = this.hass;
     }

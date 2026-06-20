@@ -97,10 +97,12 @@ function inject(sidebar: HTMLElement, s: SidebarSettings): void {
   if (root.getElementById(ITEM_ID)) return; // already present
   const list = findList(sidebar);
   const item = buildItem(s);
-  if (list) {
-    // Append INTO the main navigation list so it sits inline with the other
-    // items (Intercom, Multimedia, …) rather than pinned above Settings.
-    list.appendChild(item);
+  // Insert right after the panel list — this placement renders reliably across
+  // HA versions (a raw <a> inside <ha-md-list> can be hidden). For a fully
+  // native, always-present sidebar item that survives refresh, use panel_custom
+  // (see README) — the card supports being used as a panel.
+  if (list && list.parentNode) {
+    list.parentNode.insertBefore(item, list.nextSibling);
   } else {
     root.appendChild(item);
   }
@@ -247,6 +249,13 @@ export function installSidebar(): void {
   const tryInject = () => {
     const sidebar = currentSidebar();
     if (!sidebar) return;
+    // If the card is mounted as a real panel_custom panel, drop the injected
+    // item to avoid a duplicate sidebar entry.
+    if ((window as any).__ha3dPanelMode) {
+      const root = (sidebar as any).shadowRoot as ShadowRoot;
+      root.getElementById(ITEM_ID)?.remove();
+      return;
+    }
     inject(sidebar, s);
     // Attach a re-inject observer once per sidebar instance (HA re-renders it).
     if (!(sidebar as any).__ha3dObs) {
