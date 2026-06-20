@@ -233,9 +233,15 @@ export class SceneManager {
     if (box.isEmpty()) return;
     const margin = 3;
     const t = this.controls.target;
-    t.x = THREE.MathUtils.clamp(t.x, box.min.x - margin, box.max.x + margin);
-    t.z = THREE.MathUtils.clamp(t.z, box.min.z - margin, box.max.z + margin);
-    t.y = THREE.MathUtils.clamp(t.y, box.min.y, box.max.y + 1);
+    const nx = THREE.MathUtils.clamp(t.x, box.min.x - margin, box.max.x + margin);
+    const ny = THREE.MathUtils.clamp(t.y, box.min.y, box.max.y + 1);
+    const nz = THREE.MathUtils.clamp(t.z, box.min.z - margin, box.max.z + margin);
+    // Apply the same correction to the camera so zoom-to-cursor (which moves
+    // both camera and target) doesn't jump/stick when the target hits the clamp.
+    this.camera.position.x += nx - t.x;
+    this.camera.position.y += ny - t.y;
+    this.camera.position.z += nz - t.z;
+    t.set(nx, ny, nz);
   }
 
   // -- Picking ----------------------------------------------------------------

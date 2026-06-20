@@ -528,25 +528,10 @@ export class EditorController {
     if (!best.openings) best.openings = [];
     const width = kind === 'door' ? 0.9 : 1.0;
     const position = Math.max(0, Math.min(wallLen - width, along - width / 2));
-    best.openings.push({ kind, position, width }); // cuts the hole in the wall
-
-    // Drop a frame model into the opening, fitted to the wall (centered on the
-    // hole, rotated to the wall direction) so it reads as a real door/window.
-    const sx = best.start[0], sz = best.start[1], ex = best.end[0], ez = best.end[1];
-    const wdx = ex - sx, wdz = ez - sz;
-    const wlen = Math.hypot(wdx, wdz) || 1;
-    const center = position + width / 2;
-    const wx = sx + (wdx / wlen) * center;
-    const wz = sz + (wdz / wlen) * center;
-    const rotDeg = (-Math.atan2(wdz, wdx) * 180) / Math.PI;
-    const fl2 = this.floor();
-    if (!fl2.furniture) fl2.furniture = [];
-    fl2.furniture.push({
-      model: kind === 'door' ? 'door' : 'window_frame',
-      position: [wx, 0, wz],
-      rotation: rotDeg,
-      id: `op${fl2.furniture.length}_${Math.floor(performance.now() % 100000)}`,
-    });
+    // Cut the hole AND let buildWall render a fitted door leaf / window glass
+    // into it — the frame is owned by the wall, so it's removed with the wall
+    // and always lines up with the opening (no orphaned floating frames).
+    best.openings.push({ kind, position, width });
 
     this.rebuild();
     this.onChange?.();

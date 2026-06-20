@@ -13,7 +13,8 @@
 import type { FloorPlan, HomeAssistant } from './types';
 
 const HA_KEY = 'ha3d_floorplans';
-const LS_KEY = 'ha3d-floorplan-default';
+const LS_KEY = 'ha3d-floorplans-set'; // full {active, projects} set
+const LS_LEGACY = 'ha3d-floorplan-default'; // older single-plan key (migration)
 
 export interface StoredProjects {
   active?: string;
@@ -40,23 +41,21 @@ async function readHA(hass: HomeAssistant): Promise<StoredProjects | null> {
   return null;
 }
 
-/** Load the full project set (HA preferred, else localStorage single project). */
+/** Load the full project set (HA preferred, else localStorage). */
 export async function loadProjects(hass?: HomeAssistant): Promise<StoredProjects> {
   if (hass) {
     const data = await readHA(hass);
     if (data) return data;
   }
-  const local = loadLocal();
-  return local ? { active: 'default', projects: { default: local } } : { projects: {} };
+  return loadLocalSet() ?? { projects: {} };
 }
 
-/** Persist the full project set. Mirrors the active plan into localStorage. */
+/** Persist the full project set to HA (if available) and always mirror locally. */
 export async function saveProjects(
   data: StoredProjects,
   hass?: HomeAssistant,
 ): Promise<{ ha: boolean }> {
-  const active = data.active ? data.projects[data.active] : undefined;
-  if (active) saveLocal(active);
+  saveLocalSet(data);
   if (!hass) return { ha: false };
   try {
     await hass.callWS?.({ type: 'frontend/set_user_data', key: HA_KEY, value: data });
@@ -64,6 +63,40 @@ export async function saveProjects(
   } catch (e) {
     console.error('[3d-floorplan] HA save failed, kept localStorage copy:', e);
     return { ha: false };
+  }
+}
+
+function loadLocalSet(): StoredProjects | null {
+  try {
+    const raw = localStorage.getItem(LS_KEY);
+    if (raw) {
+      const data = JSON.parse(raw) as StoredProjects;
+      if (data && data.projects) return data;
+    }
+  } catch {
+    /* ignore */
+  }
+  // Migrate an older single-plan localStorage entry into a one-project set.
+  const legacy = loadLegacyPlan();
+  return legacy ? { active: 'default', projects: { default: legacy } } : null;
+}
+
+function saveLocalSet(data: StoredProjects): void {
+  try {
+    localStorage.setItem(LS_KEY, JSON.stringify(data));
+  } catch {
+    /* quota / unavailable */
+  }
+}
+
+function loadLegacyPlan(): FloorPlan | null {
+  try {
+    const raw = localStorage.getItem(LS_LEGACY);
+    if (!raw) return null;
+    const plan = JSON.parse(raw);
+    return valid(plan) ? plan : null;
+  } catch {
+    return null;
   }
 }
 
@@ -86,27 +119,14 @@ export async function loadPlan(hass?: HomeAssistant): Promise<FloorPlan | null> 
 }
 
 export function newProjectId(): string {
-  // Stable-ish unique id (performance.now is available in the browser).
-  return `p${Math.floor(performance.now()).toString(36)}${Math.floor((performance.now() * 1000) % 1000)}`;
-}
-
-export function loadLocal(): FloorPlan | null {
   try {
-    const raw = localStorage.getItem(LS_KEY);
-    if (!raw) return null;
-    const plan = JSON.parse(raw);
-    return valid(plan) ? plan : null;
+    if (typeof crypto !== 'undefined' && (crypto as any).randomUUID) {
+      return 'p' + (crypto as any).randomUUID().replace(/-/g, '').slice(0, 12);
+    }
   } catch {
-    return null;
+    /* fall through */
   }
-}
-
-export function saveLocal(plan: FloorPlan): void {
-  try {
-    localStorage.setItem(LS_KEY, JSON.stringify(plan));
-  } catch {
-    /* quota / unavailable */
-  }
+  return `p${Date.now().toString(36)}${Math.floor(Math.random() * 1e9).toString(36)}`;
 }
 
 /** A fresh empty plan to draw on from scratch. */

@@ -52,6 +52,8 @@ export class Ha3dFloorplanCard extends LitElement {
   @state() private editSelectedColor: string | null = null;
   @state() private projectList: ProjectInfo[] = [];
   @state() private currentProjectId: string | null = null;
+  /** Id of the project open in the editor this session (null = unsaved new). */
+  @state() private editingProjectId: string | null = null;
   @state() private editPlanName = '';
   @state() private paletteOpen = false;
   @state() private toast?: string;
@@ -311,6 +313,7 @@ export class Ha3dFloorplanCard extends LitElement {
     this.editFloorIndex = this.editor.floorIndex;
     this.editor.setSnap(this.editSnap); // carry the snap preference into the new editor
     this.editShowAllEntities = false;
+    this.editingProjectId = this.currentProjectId; // edit the project currently loaded
     this.editPlanName = editable.name ?? 'Plan';
     this.editor.start();
     this.editing = true;
@@ -338,8 +341,9 @@ export class Ha3dFloorplanCard extends LitElement {
 
   private onSelectEditFloor(e: Event): void {
     const i = parseInt((e.target as HTMLSelectElement).value, 10);
-    if (Number.isNaN(i)) return;
-    this.editor?.setFloor(i);
+    if (Number.isNaN(i) || !this.editor) return;
+    if (i < 0 || i >= this.editor.plan.floors.length) return;
+    this.editor.setFloor(i);
     this.activeFloorIndex = i;
   }
 
@@ -365,7 +369,9 @@ export class Ha3dFloorplanCard extends LitElement {
     );
     if (!ok) return;
     const name = `Plan ${this.projectList.length + 1}`;
-    this.currentProjectId = newProjectId(); // a fresh id → does not overwrite others
+    // New is an unsaved project — don't touch currentProjectId (the view plan).
+    // It gets a fresh id only on Save, so it never overwrites another project.
+    this.editingProjectId = null;
     this.editor.loadPlan(blankPlan(name));
     this.editPlanName = name;
     this.showToast('New project — draw it, then Save to keep it');
@@ -390,6 +396,8 @@ export class Ha3dFloorplanCard extends LitElement {
       return;
     }
     this.currentProjectId = id;
+    this.editingProjectId = id;
+    this.activeFloorIndex = 0;
     const copy: FloorPlan = JSON.parse(JSON.stringify(plan));
     const viewCopy: FloorPlan = JSON.parse(JSON.stringify(plan));
     this.currentPlan = viewCopy;
@@ -408,7 +416,9 @@ export class Ha3dFloorplanCard extends LitElement {
   }
 
   private async onDeleteProject(): Promise<void> {
-    const id = this.currentProjectId;
+    const id = this.editingProjectId ?? this.currentProjectId;
+    // Re-read so a concurrent change elsewhere isn't lost by this delete-save.
+    this.storedProjects = await loadProjects(this.hass);
     if (!id || !this.storedProjects.projects[id]) {
       this.showToast('This project is not saved yet');
       return;
@@ -421,9 +431,13 @@ export class Ha3dFloorplanCard extends LitElement {
     await saveProjects(this.storedProjects, this.hass);
     this.projectList = remaining;
     this.currentProjectId = this.storedProjects.active ?? null;
+    this.editingProjectId = this.currentProjectId;
+    this.activeFloorIndex = 0;
     const next = this.currentProjectId
       ? this.storedProjects.projects[this.currentProjectId]
       : blankPlan();
+    this.currentPlan = JSON.parse(JSON.stringify(next));
+    this.floorNames = next.floors.map((f, i) => f.name || `Floor ${i + 1}`);
     if (this.editor) {
       this.editor.loadPlan(JSON.parse(JSON.stringify(next)));
       this.editPlanName = next.name ?? '';
@@ -488,12 +502,16 @@ export class Ha3dFloorplanCard extends LitElement {
     if (!this.editor) return;
     const plan = this.editor.plan;
     if (!plan.name) plan.name = this.editPlanName || 'Plan';
-    // Store under the current project id (create one if this is a new project).
-    let id = this.currentProjectId;
-    if (!id || !this.storedProjects.projects[id]) {
-      id = id || newProjectId();
-      this.currentProjectId = id;
+    // Re-read the shared set first, then apply only THIS project, so we never
+    // clobber projects saved meanwhile on another device/tab.
+    this.storedProjects = await loadProjects(this.hass);
+    let id = this.editingProjectId;
+    if (!id) {
+      id = newProjectId();
+      while (this.storedProjects.projects[id]) id = newProjectId();
     }
+    this.editingProjectId = id;
+    this.currentProjectId = id;
     this.storedProjects.projects[id] = JSON.parse(JSON.stringify(plan));
     this.storedProjects.active = id;
     const res = await saveProjects(this.storedProjects, this.hass);
@@ -568,16 +586,23 @@ export class Ha3dFloorplanCard extends LitElement {
             @click=${() => this.onEditTool('orbit')}>✋ View</button>
         </div>
 
-        ${this.floorNames.length > 1
-          ? html`<div class="toolrow">
-              <span class="hint">Floor:</span>
-              <select class="select" @change=${this.onSelectEditFloor}>
-                ${this.floorNames.map(
-                  (name, i) => html`<option value=${i} ?selected=${i === this.editFloorIndex}>${name}</option>`,
-                )}
-              </select>
-            </div>`
-          : nothing}
+        ${(() => {
+          // Derive the floor list from the LIVE edit plan (not View-mode state),
+          // so it stays correct after New / project switch while editing.
+          const efloors = this.editor?.plan.floors ?? [];
+          return efloors.length > 1
+            ? html`<div class="toolrow">
+                <span class="hint">Floor:</span>
+                <select class="select" @change=${this.onSelectEditFloor}>
+                  ${efloors.map(
+                    (f, i) => html`<option value=${i} ?selected=${i === this.editFloorIndex}>
+                      ${f.name || `Floor ${i + 1}`}
+                    </option>`,
+                  )}
+                </select>
+              </div>`
+            : nothing;
+        })()}
 
         ${tool === 'wall'
           ? html`<div class="toolrow">
@@ -697,11 +722,11 @@ export class Ha3dFloorplanCard extends LitElement {
           ${this.projectList.length > 0
             ? html`<div class="toolrow">
                 <select class="select wide" @change=${this.onSelectStorageProject}>
-                  ${this.currentProjectId && !this.storedProjects.projects[this.currentProjectId]
+                  ${!this.editingProjectId
                     ? html`<option value="" selected>(unsaved new)</option>`
                     : nothing}
                   ${this.projectList.map(
-                    (p) => html`<option value=${p.id} ?selected=${p.id === this.currentProjectId}>${p.name}</option>`,
+                    (p) => html`<option value=${p.id} ?selected=${p.id === this.editingProjectId}>${p.name}</option>`,
                   )}
                 </select>
                 <button class="btn" title="Delete this project" @click=${this.onDeleteProject}>🗑</button>

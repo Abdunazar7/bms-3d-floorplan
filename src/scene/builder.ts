@@ -88,6 +88,16 @@ function buildWall(
   const height = wall.height ?? defaultHeight;
   const thickness = wall.thickness ?? DEFAULT_THICKNESS;
   const material = wallMaterial(wall.color);
+  // Door/window frames are rendered INTO the wall group so they're owned by the
+  // wall (deleted with it), coupled to the opening, and sized to the hole.
+  const doorMat = new THREE.MeshStandardMaterial({ color: 0x9c6b3f, roughness: 0.7 });
+  const glassMat = new THREE.MeshStandardMaterial({
+    color: 0x88c0d0,
+    transparent: true,
+    opacity: 0.35,
+    roughness: 0.1,
+    metalness: 0.1,
+  });
 
   const openings = [...(wall.openings ?? [])].sort((a, b) => a.position - b.position);
 
@@ -95,6 +105,7 @@ function buildWall(
   for (const op of openings) {
     const opStart = clamp(op.position, 0, length);
     const opEnd = clamp(op.position + op.width, 0, length);
+    if (opEnd <= cursor) continue; // fully engulfed by a previous opening — skip
     // Solid wall before the opening.
     addWallSpan(group, start, dir, normalAngle, cursor, opStart, 0, height, thickness, material);
     // Sill below (windows) and header above the opening.
@@ -105,6 +116,12 @@ function buildWall(
     }
     if (top < height) {
       addWallSpan(group, start, dir, normalAngle, opStart, opEnd, top, height, thickness, material);
+    }
+    // Fill the hole with a door leaf / window glass, sized to the opening.
+    if (op.kind === 'door') {
+      addWallSpan(group, start, dir, normalAngle, opStart, opEnd, sill, top, 0.05, doorMat);
+    } else {
+      addWallSpan(group, start, dir, normalAngle, opStart, opEnd, sill, top, 0.03, glassMat);
     }
     cursor = Math.max(cursor, opEnd);
   }
