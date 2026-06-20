@@ -34,7 +34,8 @@ export class EditorController {
   selectedId: string | null = null;
 
   private sm: SceneManager;
-  private points: Vec2[] = [];
+  /** Points of the wall run being drawn; each new click commits a wall. */
+  private chain: Vec2[] = [];
   private cursor: Vec2 | null = null;
 
   constructor(sm: SceneManager, plan: FloorPlan) {
@@ -43,7 +44,7 @@ export class EditorController {
   }
 
   get pointCount(): number {
-    return this.points.length;
+    return this.chain.length;
   }
 
   start(): void {
@@ -55,13 +56,14 @@ export class EditorController {
     this.cancelChain();
     this.sm.setGroundHandler(undefined);
     this.sm.setEditMode(false);
-    this.sm.setControlsEnabled(true);
+    this.sm.setDrawMode(false);
   }
 
   setTool(t: EditTool): void {
     this.tool = t;
-    // Orbit tool: free camera. Other tools: taps act on the scene; zoom stays on.
-    this.sm.setControlsEnabled(t === 'orbit');
+    // Orbit tool: left/one-finger orbits. Drawing tools: left/one-finger acts,
+    // right mouse / two fingers always orbit + zoom (no tool-switch needed).
+    this.sm.setDrawMode(t !== 'orbit');
     if (t !== 'wall') this.cancelChain();
     if (t !== 'select') this.select(null);
     this.onChange?.();
@@ -160,7 +162,7 @@ export class EditorController {
       click: (p, e) => this.onClick(p, e),
       move: (p) => this.onMove(p),
     });
-    this.sm.setControlsEnabled(this.tool === 'orbit');
+    this.sm.setDrawMode(this.tool !== 'orbit');
   }
 
   private onClick(p: THREE.Vector3, e?: PointerEvent): void {
@@ -181,32 +183,64 @@ export class EditorController {
     }
     if (this.tool !== 'wall') return;
     const { pt } = this.snapPoint(p.x, p.z);
-    if (this.points.length >= 2) {
-      const s = this.points[0];
-      if (Math.hypot(pt[0] - s[0], pt[1] - s[1]) < CLOSE_DIST) {
-        this.commit(true);
-        return;
-      }
+
+    // First click of a run: just drop the start point.
+    if (this.chain.length === 0) {
+      this.chain = [pt];
+      this.renderPreview();
+      this.onChange?.();
+      return;
     }
-    // Ignore a duplicate click on the same snapped cell.
-    const last = this.points[this.points.length - 1];
-    if (last && last[0] === pt[0] && last[1] === pt[1]) return;
-    this.points.push(pt);
+
+    const start = this.chain[0];
+    const last = this.chain[this.chain.length - 1];
+
+    // Returning to the start closes the loop into a room.
+    if (this.chain.length >= 3 && Math.hypot(pt[0] - start[0], pt[1] - start[1]) < CLOSE_DIST) {
+      this.commitWall(last, start);
+      this.addRoom(this.chain);
+      this.chain = [];
+      this.cursor = null;
+      this.rebuild();
+      this.onChange?.();
+      return;
+    }
+
+    // Ignore a duplicate click on the same point.
+    if (last[0] === pt[0] && last[1] === pt[1]) return;
+
+    // Two points → a wall appears immediately (no Finish needed); the run
+    // continues from the new point so you can keep adding connected walls.
+    this.commitWall(last, pt);
+    this.chain.push(pt);
+    this.rebuild();
     this.renderPreview();
     this.onChange?.();
   }
 
   private onMove(p: THREE.Vector3): void {
-    if (this.tool !== 'wall' || this.points.length === 0) return;
+    if (this.tool !== 'wall' || this.chain.length === 0) return;
     this.cursor = this.snapPoint(p.x, p.z).pt;
     this.renderPreview();
+  }
+
+  private commitWall(a: Vec2, b: Vec2): void {
+    const fl = this.floor();
+    if (!fl.walls) fl.walls = [];
+    fl.walls.push({ start: [a[0], a[1]], end: [b[0], b[1]] });
+  }
+
+  private addRoom(points: Vec2[]): void {
+    const fl = this.floor();
+    if (!fl.rooms) fl.rooms = [];
+    fl.rooms.push({ polygon: points.map((p) => [p[0], p[1]] as Vec2) });
   }
 
   /** Snap to a nearby existing wall endpoint (so walls connect), else grid. */
   private snapPoint(x: number, z: number): { pt: Vec2; snapped: boolean } {
     let best: Vec2 | null = null;
     let bd = VERT_SNAP;
-    for (const c of [...this.existingEndpoints(), ...this.points]) {
+    for (const c of [...this.existingEndpoints(), ...this.chain]) {
       const d = Math.hypot(x - c[0], z - c[1]);
       if (d < bd) {
         bd = d;
@@ -264,19 +298,28 @@ export class EditorController {
     this.onChange?.();
   }
 
+  /** Undo: remove the last committed wall of the current run (and its point). */
   undoPoint(): void {
-    if (!this.points.length) return;
-    this.points.pop();
-    this.renderPreview();
+    if (this.chain.length >= 2) {
+      this.floor().walls?.pop(); // the last wall belongs to this run
+      this.chain.pop();
+      this.rebuild();
+      this.renderPreview();
+    } else if (this.chain.length === 1) {
+      this.chain = [];
+      this.cursor = null;
+      this.sm.clearPreview();
+    }
     this.onChange?.();
   }
 
+  /** End the current wall run (walls are already committed). */
   finishChain(): void {
-    this.commit(false);
+    this.cancelChain();
   }
 
   cancelChain(): void {
-    this.points = [];
+    this.chain = [];
     this.cursor = null;
     this.sm.clearPreview();
     this.onChange?.();
@@ -289,31 +332,8 @@ export class EditorController {
     this.cancelChain();
     this.selectedId = null;
     this.sm.setSelection(null);
-    this.sm.loadPlan(plan, true);
+    this.sm.loadPlan(plan, false); // blank → frame the origin, don't keep far camera
     this.applySceneEditState();
-    this.onChange?.();
-  }
-
-  private commit(closed: boolean): void {
-    if (this.points.length < 2) {
-      this.cancelChain();
-      return;
-    }
-    const floor = this.plan.floors[this.floorIndex];
-    if (!floor.walls) floor.walls = [];
-    const pts = this.points;
-    const segs = closed ? pts.length : pts.length - 1;
-    for (let i = 0; i < segs; i++) {
-      const a = pts[i];
-      const b = pts[(i + 1) % pts.length];
-      floor.walls.push({ start: a, end: b });
-    }
-    if (closed) {
-      if (!floor.rooms) floor.rooms = [];
-      floor.rooms.push({ polygon: pts.slice() });
-    }
-    this.cancelChain();
-    this.rebuild();
     this.onChange?.();
   }
 
@@ -327,12 +347,11 @@ export class EditorController {
     const group = this.sm.previewGroup;
     const elev = this.elevation();
     const h = this.wallHeight();
-    const chain = this.cursor ? [...this.points, this.cursor] : [...this.points];
+    const chain = this.cursor ? [...this.chain, this.cursor] : [...this.chain];
 
     // Vertices. Points that land on an existing wall endpoint get a larger
     // green "connection" node so you can see two walls joining.
-    const nodes = this.cursor ? [...this.points, this.cursor] : [...this.points];
-    for (const p of nodes) {
+    for (const p of chain) {
       const connected = this.isConnection(p);
       const dot = new THREE.Mesh(
         new THREE.SphereGeometry(connected ? 0.12 : 0.07, 12, 12),
@@ -359,8 +378,8 @@ export class EditorController {
     }
 
     // Highlight the closing target when near the start.
-    if (this.points.length >= 2 && this.cursor) {
-      const s = this.points[0];
+    if (this.chain.length >= 2 && this.cursor) {
+      const s = this.chain[0];
       if (Math.hypot(this.cursor[0] - s[0], this.cursor[1] - s[1]) < CLOSE_DIST) {
         const ring = new THREE.Mesh(
           new THREE.TorusGeometry(0.22, 0.04, 8, 24),

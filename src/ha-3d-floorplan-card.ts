@@ -397,10 +397,10 @@ export class Ha3dFloorplanCard extends LitElement {
 
         ${tool === 'wall'
           ? html`<div class="toolrow">
-              <button class="btn" ?disabled=${this.editPoints < 2}
-                title="Finish this run of walls" @click=${this.onFinishChain}>✓ Finish</button>
               <button class="btn" ?disabled=${this.editPoints < 1}
-                title="Undo last point" @click=${this.onUndoPoint}>⤺ Undo</button>
+                title="End this run (start a new wall elsewhere)" @click=${this.onFinishChain}>⤓ End run</button>
+              <button class="btn" ?disabled=${this.editPoints < 1}
+                title="Undo last wall" @click=${this.onUndoPoint}>⤺ Undo</button>
             </div>`
           : nothing}
 
@@ -450,7 +450,7 @@ export class Ha3dFloorplanCard extends LitElement {
           ? html`<span class="hint">tap a wall to add a ${tool}</span>`
           : nothing}
         ${tool === 'wall'
-          ? html`<span class="hint">tap floor for points · green node = walls join</span>`
+          ? html`<span class="hint">tap 2 points = 1 wall (auto) · green node = join · right-drag / two-finger to orbit</span>`
           : nothing}
 
         <div class="toolrow">

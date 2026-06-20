@@ -198,8 +198,15 @@ export class SceneManager {
 
   /** Recenter on the visible floor's bounding box. The kiosk safety net. */
   resetView(): void {
-    const box = this.floors[this.activeFloor]?.bbox ?? this.fullBBox;
-    if (box.isEmpty()) return;
+    let box = this.floors[this.activeFloor]?.bbox ?? this.fullBBox;
+    if (!box || box.isEmpty()) {
+      // Blank/empty plan: frame a default area around the origin so the camera
+      // isn't left parked far away with nothing in view.
+      box = new THREE.Box3(
+        new THREE.Vector3(-4, 0, -4),
+        new THREE.Vector3(4, 2.6, 4),
+      );
+    }
     const center = box.getCenter(new THREE.Vector3());
     const size = box.getSize(new THREE.Vector3());
     const maxDim = Math.max(size.x, size.z, 2);
@@ -326,6 +333,34 @@ export class SceneManager {
   setControlsEnabled(on: boolean): void {
     this.controls.enableRotate = on;
     this.controls.enablePan = on;
+  }
+
+  /**
+   * In draw mode, the LEFT mouse / single finger performs the editor action
+   * (draw, place, select) while RIGHT mouse / two fingers always orbit + zoom —
+   * so you never have to switch to a "View" tool to move the camera. In view
+   * mode, the usual controls apply.
+   */
+  setDrawMode(drawing: boolean): void {
+    this.controls.enabled = true;
+    this.controls.enableRotate = true;
+    this.controls.enableZoom = true;
+    this.controls.enablePan = true;
+    if (drawing) {
+      this.controls.mouseButtons = {
+        LEFT: null as any, // left is reserved for the editor tool
+        MIDDLE: THREE.MOUSE.DOLLY,
+        RIGHT: THREE.MOUSE.ROTATE,
+      };
+      this.controls.touches = { ONE: null as any, TWO: THREE.TOUCH.DOLLY_PAN };
+    } else {
+      this.controls.mouseButtons = {
+        LEFT: THREE.MOUSE.ROTATE,
+        MIDDLE: THREE.MOUSE.DOLLY,
+        RIGHT: THREE.MOUSE.PAN,
+      };
+      this.controls.touches = { ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_PAN };
+    }
   }
 
   /** Raycast a pointer event onto the current ground plane. */

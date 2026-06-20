@@ -198,11 +198,13 @@ and buttons to simulate live state changes.
 Tap **✎ Edit** (top-right) to draw your floor plan directly in the 3D view —
 no JSON, no YAML, no external modeling tool:
 
-- **▟ Wall** — tap the floor to place wall points (snapped to a 10 cm grid);
-  walls extrude up live. Two points + **Finish** = one wall (no loop required).
-  New points snap onto existing wall endpoints, shown as a **green node** so
-  walls join cleanly. Tap near the first point to close a room. **Undo** removes
-  the last point.
+- **▟ Wall** — tap two points and a wall appears **immediately** (no Finish);
+  keep tapping to chain connected walls. Points snap onto existing endpoints
+  (**green node** = walls join). Tap near the start to close a room. **End run**
+  stops the current chain; **Undo** removes the last wall.
+- **Camera while editing** — right-drag (desktop) or **two fingers** (tablet)
+  orbit + zoom at any time, so you never switch tools just to move the camera.
+  Left-click / one finger performs the active tool.
 - **🚪 Door / 🪟 Window** — tap a wall to cut an opening at that spot.
 - **🛋 Furniture** — pick a model (40+ pieces incl. lighting) from a visual
   palette with **thumbnails**, then tap the floor to place it.

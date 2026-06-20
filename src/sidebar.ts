@@ -37,22 +37,6 @@ function settings(): SidebarSettings {
   return (window as any).ha3dFloorplan ?? {};
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((r) => setTimeout(r, ms));
-}
-
-/** Walk down through HA's nested shadow roots to reach <ha-sidebar>. */
-async function findSidebar(): Promise<HTMLElement | null> {
-  for (let i = 0; i < 40; i++) {
-    const ha = document.querySelector('home-assistant') as any;
-    const main = ha?.shadowRoot?.querySelector('home-assistant-main') as any;
-    const sidebar = main?.shadowRoot?.querySelector('ha-sidebar') as HTMLElement | null;
-    if (sidebar && (sidebar as any).shadowRoot) return sidebar;
-    await sleep(500);
-  }
-  return null;
-}
-
 /** Find the scrollable list container inside the sidebar across HA versions. */
 function findList(sidebar: HTMLElement): HTMLElement | null {
   const root = (sidebar as any).shadowRoot as ShadowRoot;
@@ -246,26 +230,39 @@ function openOverlay(s: SidebarSettings): void {
   document.body.appendChild(overlay);
 }
 
-export async function installSidebar(): Promise<void> {
+function currentSidebar(): HTMLElement | null {
+  const ha = document.querySelector('home-assistant') as any;
+  const main = ha?.shadowRoot?.querySelector('home-assistant-main') as any;
+  const sidebar = main?.shadowRoot?.querySelector('ha-sidebar') as HTMLElement | null;
+  return sidebar && (sidebar as any).shadowRoot ? sidebar : null;
+}
+
+let installed = false;
+
+export function installSidebar(): void {
   const s = settings();
-  if (s.sidebar === false) return;
+  if (s.sidebar === false || installed) return;
+  installed = true;
 
-  const sidebar = await findSidebar();
-  if (!sidebar) {
-    console.info(
-      '[3d-floorplan] sidebar not found — auto-injection skipped. ' +
-        'Use panel_custom (see README) for a guaranteed sidebar entry.',
-    );
-    return;
-  }
+  const tryInject = () => {
+    const sidebar = currentSidebar();
+    if (!sidebar) return;
+    inject(sidebar, s);
+    // Attach a re-inject observer once per sidebar instance (HA re-renders it).
+    if (!(sidebar as any).__ha3dObs) {
+      const root = (sidebar as any).shadowRoot as ShadowRoot;
+      const obs = new MutationObserver(() => {
+        if (!root.getElementById(ITEM_ID)) inject(sidebar, s);
+      });
+      obs.observe(root, { childList: true, subtree: true });
+      (sidebar as any).__ha3dObs = obs;
+    }
+  };
 
-  inject(sidebar, s);
-
-  // HA re-renders the sidebar on navigation / theme changes; re-inject if our
-  // item disappears.
-  const root = (sidebar as any).shadowRoot as ShadowRoot;
-  const observer = new MutationObserver(() => {
-    if (!root.getElementById(ITEM_ID)) inject(sidebar, s);
-  });
-  observer.observe(root, { childList: true, subtree: true });
+  tryInject();
+  // Keep trying forever (cheap, idempotent): handles the resource loading
+  // before the sidebar exists, new tabs, other devices, theme/HA re-renders,
+  // and the sidebar element being recreated. This is why the item now appears
+  // everywhere, not just the first tab that loaded a dashboard.
+  window.setInterval(tryInject, 1500);
 }

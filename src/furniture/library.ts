@@ -411,6 +411,47 @@ const builders: Record<string, FurnitureBuilder> = {
     return g;
   },
 
+  double_door: (c) => {
+    const g = new THREE.Group();
+    g.add(tint(box(0.7, 2.0, 0.05, mat(WOOD), -0.36, 1.0, 0), c));
+    g.add(tint(box(0.7, 2.0, 0.05, mat(WOOD), 0.36, 1.0, 0), c));
+    g.add(cyl(0.025, 0.025, 0.1, mat(METAL), -0.05, 1.0, 0.05));
+    g.add(cyl(0.025, 0.025, 0.1, mat(METAL), 0.05, 1.0, 0.05));
+    return g;
+  },
+  sliding_door: (c) => {
+    const g = new THREE.Group();
+    g.add(box(1.6, 0.06, 0.08, mat(METAL), 0, 2.05, 0)); // rail
+    g.add(tint(box(0.78, 1.95, 0.04, mat(GLASS, { transparent: true, opacity: 0.4 }), -0.4, 1.0, 0), c));
+    g.add(tint(box(0.78, 1.95, 0.04, mat(GLASS, { transparent: true, opacity: 0.4 }), 0.4, 1.0, 0.05), c));
+    return g;
+  },
+  wall_panel: (c) => {
+    const g = new THREE.Group();
+    g.add(tint(box(1.5, 2.6, 0.12, mat(0xe6e6e6), 0, 1.3, 0), c));
+    return g;
+  },
+  arch: (c) => {
+    const g = new THREE.Group();
+    g.add(tint(box(0.15, 2.0, 0.25, mat(0xe6e6e6), -0.6, 1.0, 0), c));
+    g.add(tint(box(0.15, 2.0, 0.25, mat(0xe6e6e6), 0.6, 1.0, 0), c));
+    g.add(tint(box(1.35, 0.25, 0.25, mat(0xe6e6e6), 0, 2.1, 0), c));
+    return g;
+  },
+  bar_stool: (c) => {
+    const g = new THREE.Group();
+    g.add(tint(cyl(0.18, 0.18, 0.05, mat(WOOD), 0, 0.66, 0), c));
+    g.add(cyl(0.03, 0.03, 0.66, mat(METAL), 0, 0.33, 0));
+    g.add(cyl(0.2, 0.2, 0.02, mat(METAL), 0, 0.02, 0));
+    return g;
+  },
+  tv_stand: (c) => {
+    const g = new THREE.Group();
+    g.add(tint(box(1.4, 0.4, 0.4, mat(DARK), 0, 0.2, 0), c));
+    g.add(box(0.6, 0.02, 0.36, mat(METAL), -0.35, 0.41, 0));
+    return g;
+  },
+
   // Generic fallback marker so an unknown model key still renders something.
   marker: (c) => {
     const g = new THREE.Group();
