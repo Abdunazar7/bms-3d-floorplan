@@ -40,6 +40,7 @@ export class Ha3dFloorplanCard extends LitElement {
   @state() private editSelectedObjModel: string | null = null;
   @state() private editShowAllEntities = false;
   @state() private editSnap = true;
+  @state() private editFloorIndex = 0;
   @state() private paletteOpen = false;
   @state() private toast?: string;
 
@@ -128,7 +129,9 @@ export class Ha3dFloorplanCard extends LitElement {
     if (!this.sceneManager && this.viewport) {
       this.initScene();
     }
-    if (this.pendingHass && this.sceneManager && this.planLoaded) {
+    // While editing, don't apply live entity updates — they'd churn the
+    // edit-copy scene and fight the editor's rebuilds. exitEdit re-syncs.
+    if (this.pendingHass && this.sceneManager && this.planLoaded && !this.editing) {
       this.applyHass(this.pendingHass);
       this.pendingHass = undefined;
     }
@@ -273,9 +276,16 @@ export class Ha3dFloorplanCard extends LitElement {
       this.editSelectedModel = ed.selectedModel;
       this.editSelectedEntity = ed.selectedEntity;
       this.editSelectedObjModel = ed.selectedObjectModel;
+      this.editFloorIndex = ed.floorIndex;
       this.requestUpdate();
     };
+    this.editor.onMessage = (m) => this.showToast(m);
     this.sceneManager.loadPlan(editable, true);
+    // Edit the floor the user is currently viewing — not always floor 0.
+    this.editor.floorIndex = Math.min(this.activeFloorIndex, editable.floors.length - 1);
+    this.editFloorIndex = this.editor.floorIndex;
+    this.editor.setSnap(this.editSnap); // carry the snap preference into the new editor
+    this.editShowAllEntities = false;
     this.editor.start();
     this.editing = true;
     this.editTool = this.editor.tool;
@@ -298,6 +308,13 @@ export class Ha3dFloorplanCard extends LitElement {
 
   private onEditTool(t: EditTool): void {
     this.editor?.setTool(t);
+  }
+
+  private onSelectEditFloor(e: Event): void {
+    const i = parseInt((e.target as HTMLSelectElement).value, 10);
+    if (Number.isNaN(i)) return;
+    this.editor?.setFloor(i);
+    this.activeFloorIndex = i;
   }
 
   private onFinishChain(): void {
@@ -354,15 +371,16 @@ export class Ha3dFloorplanCard extends LitElement {
   /** Entity ids for the selected piece, filtered by its natural domain(s).
    *  If the domain filter matches nothing, fall back to ALL entities so the
    *  dropdown is never empty. */
-  private candidateEntities(domains: string[]): string[] {
-    if (!this.hass) return [];
+  private candidateEntities(domains: string[]): { ids: string[]; fellBack: boolean } {
+    if (!this.hass) return { ids: [], fellBack: false };
     const all = Object.keys(this.hass.states);
     let ids = domains.length
       ? all.filter((id) => domains.includes(id.split('.')[0]))
       : all;
-    if (ids.length === 0) ids = all; // filter too strict → show everything
-    ids.sort((a, b) => this.entityLabel(a).localeCompare(this.entityLabel(b)));
-    return ids;
+    const fellBack = domains.length > 0 && ids.length === 0;
+    if (fellBack) ids = all; // filter too strict → show everything
+    ids = [...ids].sort((a, b) => this.entityLabel(a).localeCompare(this.entityLabel(b)));
+    return { ids, fellBack };
   }
 
   private entityLabel(id: string): string {
@@ -439,6 +457,17 @@ export class Ha3dFloorplanCard extends LitElement {
             @click=${() => this.onEditTool('orbit')}>✋ View</button>
         </div>
 
+        ${this.floorNames.length > 1
+          ? html`<div class="toolrow">
+              <span class="hint">Floor:</span>
+              <select class="select" @change=${this.onSelectEditFloor}>
+                ${this.floorNames.map(
+                  (name, i) => html`<option value=${i} ?selected=${i === this.editFloorIndex}>${name}</option>`,
+                )}
+              </select>
+            </div>`
+          : nothing}
+
         ${tool === 'wall'
           ? html`<div class="toolrow">
               <button class="btn" ?disabled=${this.editPoints < 1}
@@ -484,7 +513,7 @@ export class Ha3dFloorplanCard extends LitElement {
                     this.editShowAllEntities || !this.editSelectedObjModel
                       ? []
                       : entityDomainsFor(this.editSelectedObjModel);
-                  const ids = this.candidateEntities(domains);
+                  const { ids, fellBack } = this.candidateEntities(domains);
                   return html`<div class="toolrow">
                       <select class="select wide" @change=${this.onPickEntity}>
                         <option value="" ?selected=${!this.editSelectedEntity}>
@@ -507,9 +536,11 @@ export class Ha3dFloorplanCard extends LitElement {
                     <span class="hint">
                       ${this.editSelectedEntity
                         ? `bound: ${this.editSelectedEntity}`
-                        : domains.length
-                          ? `${ids.length} ${domains.join(' / ')} entities (tap All for every entity)`
-                          : `${ids.length} entities`}
+                        : fellBack
+                          ? `${ids.length} entities (no ${domains.join(' / ')} found)`
+                          : domains.length
+                            ? `${ids.length} ${domains.join(' / ')} entities (tap All for every entity)`
+                            : `${ids.length} entities`}
                     </span>`;
                 })()
               : nothing}`

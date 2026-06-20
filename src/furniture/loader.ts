@@ -41,15 +41,31 @@ function applyTransform(obj: THREE.Object3D, def: FurnitureDef): void {
   else obj.scale.setScalar(s as number);
 }
 
-function tintGlb(root: THREE.Object3D, color?: string): void {
-  if (!color) return;
-  const c = new THREE.Color(color);
+/**
+ * `scene.clone(true)` shares geometry + material instances with the cached
+ * source by reference, so disposing a placement (on scene rebuild) would free
+ * GPU buffers still used by the cache and other placements. Give every cloned
+ * placement its OWN geometry + material so disposal is safe, and apply an
+ * optional tint.
+ */
+function ownResources(root: THREE.Object3D, color?: string): void {
+  const c = color ? new THREE.Color(color) : null;
   root.traverse((o) => {
     const mesh = o as THREE.Mesh;
-    if (mesh.isMesh && mesh.material) {
-      const m = (mesh.material as THREE.MeshStandardMaterial).clone();
-      if (m.color) m.color.multiply(c);
-      mesh.material = m;
+    if (!mesh.isMesh) return;
+    if (mesh.geometry) mesh.geometry = mesh.geometry.clone();
+    if (mesh.material) {
+      if (Array.isArray(mesh.material)) {
+        mesh.material = mesh.material.map((m) => {
+          const cl = m.clone() as THREE.MeshStandardMaterial;
+          if (c && cl.color) cl.color.multiply(c);
+          return cl;
+        });
+      } else {
+        const cl = (mesh.material as THREE.MeshStandardMaterial).clone();
+        if (c && cl.color) cl.color.multiply(c);
+        mesh.material = cl;
+      }
     }
   });
 }
@@ -70,7 +86,7 @@ export function resolveFurniture(def: FurnitureDef): THREE.Object3D {
     loadGlb(def.glb)
       .then((scene) => {
         const clone = scene.clone(true);
-        tintGlb(clone, def.color);
+        ownResources(clone, def.color); // independent geometry/material per placement
         container.remove(placeholder);
         container.add(clone);
       })

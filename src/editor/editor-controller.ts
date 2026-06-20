@@ -24,7 +24,7 @@ const VERT_SNAP = 0.3; // snap a new point onto an existing wall endpoint
 
 // Drawing aids ("magnet"):
 const ANGLE_STEP = Math.PI / 12; // 15° — strong pull to parallel/perpendicular
-const LEN_TOL = 0.3; // snap a segment's length to a nearby existing wall length
+const LEN_TOL = 0.12; // snap a segment's length to a nearby existing wall length
 const ALIGN_TOL = 0.25; // align the first point's x/z with an existing endpoint
 
 const snap = (v: number) => Math.round(v / SNAP) * SNAP;
@@ -46,6 +46,8 @@ export class EditorController {
   floorIndex = 0;
   tool: EditTool = 'wall';
   onChange?: () => void;
+  /** Transient user-facing messages (e.g. "tap closer to a wall"). */
+  onMessage?: (msg: string) => void;
   /** Furniture model to drop with the furniture tool. */
   selectedModel = 'sofa';
   /** Currently selected placement id (select tool). */
@@ -93,6 +95,18 @@ export class EditorController {
 
   setSnap(on: boolean): void {
     this.snapEnabled = on;
+    this.onChange?.();
+  }
+
+  /** Switch the floor being edited; keeps the scene's visible floor, grid
+   *  elevation and edit target in lockstep. */
+  setFloor(index: number): void {
+    if (index < 0 || index >= this.plan.floors.length) return;
+    this.cancelChain();
+    this.select(null);
+    this.floorIndex = index;
+    this.sm.setActiveFloor(index);
+    this.applySceneEditState();
     this.onChange?.();
   }
 
@@ -348,13 +362,15 @@ export class EditorController {
       }
     }
 
-    let pt: Vec2 = [last[0] + Math.cos(ang) * finalLen, last[1] + Math.sin(ang) * finalLen];
-    pt = [snap(pt[0]), snap(pt[1])];
+    // Keep the exact angle-snapped direction and matched/grid length — do NOT
+    // re-grid-snap the coordinates (that would distort both angle and length).
+    const pt: Vec2 = [last[0] + Math.cos(ang) * finalLen, last[1] + Math.sin(ang) * finalLen];
 
-    // Parallel to any existing wall?
+    // Parallel test uses the actual committed direction.
+    const fang = Math.atan2(pt[1] - last[1], pt[0] - last[0]);
     const parallel = (this.floor().walls ?? []).some((w) => {
       const wa = Math.atan2(w.end[1] - w.start[1], w.end[0] - w.start[0]);
-      let diff = Math.abs(wa - ang) % Math.PI;
+      let diff = Math.abs(wa - fang) % Math.PI;
       if (diff > Math.PI / 2) diff = Math.PI - diff;
       return diff < 0.03;
     });
@@ -400,7 +416,14 @@ export class EditorController {
         wallLen = len;
       }
     }
-    if (!best) return;
+    if (!best) {
+      this.onMessage?.(
+        (this.floor().walls?.length ?? 0) === 0
+          ? 'Draw a wall first, then tap it to add a door/window'
+          : 'Tap closer to a wall',
+      );
+      return;
+    }
     if (!best.openings) best.openings = [];
     const width = kind === 'door' ? 0.9 : 1.0;
     const position = Math.max(0, Math.min(wallLen - width, along - width / 2));
@@ -419,6 +442,8 @@ export class EditorController {
     } else if (this.chain.length === 1) {
       this.chain = [];
       this.cursor = null;
+      this.snapInfo = null;
+      if (this.measureLabel) this.measureLabel.sprite.visible = false;
       this.sm.clearPreview();
     }
     this.onChange?.();

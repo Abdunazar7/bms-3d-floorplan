@@ -167,6 +167,10 @@ export class SceneManager {
 
   private clearPlan(): void {
     for (const bm of this.bindingManagers) bm.dispose();
+    for (const f of this.floors) {
+      // CanvasTexture-backed sprite labels aren't freed by mesh disposal.
+      for (const label of f.labels) label.dispose();
+    }
     for (const g of this.floorGroups) {
       this.scene.remove(g);
       disposeGroup(g);
