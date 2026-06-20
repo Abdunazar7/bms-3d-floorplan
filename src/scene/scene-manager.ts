@@ -44,6 +44,17 @@ export class SceneManager {
   private downPos = { x: 0, y: 0 };
   private downTime = 0;
 
+  // -- Editor support --
+  /** Editor preview meshes (wall ghosts, point dots) live here. */
+  readonly previewGroup = new THREE.Group();
+  private editing = false;
+  private gridHelper?: THREE.GridHelper;
+  private groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+  private onGround?: {
+    click?: (p: THREE.Vector3, e: PointerEvent) => void;
+    move?: (p: THREE.Vector3, e: PointerEvent) => void;
+  };
+
   constructor(container: HTMLElement, background = '#1b1d22') {
     this.container = container;
 
@@ -59,6 +70,7 @@ export class SceneManager {
 
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(background);
+    this.scene.add(this.previewGroup);
 
     this.camera = new THREE.PerspectiveCamera(55, 1, 0.1, 1000);
     this.camera.position.set(8, 8, 8);
@@ -120,7 +132,11 @@ export class SceneManager {
 
   // -- Floor plan loading -----------------------------------------------------
 
-  loadPlan(plan: FloorPlan): void {
+  loadPlan(plan: FloorPlan, keepView = false): void {
+    const prevTarget = this.controls.target.clone();
+    const prevPos = this.camera.position.clone();
+    const prevFloor = this.activeFloor;
+
     this.clearPlan();
     this.fullBBox.makeEmpty();
 
@@ -135,8 +151,17 @@ export class SceneManager {
       this.fullBBox.union(built.bbox);
     });
 
-    this.setActiveFloor(0);
-    this.resetView();
+    const floor = keepView ? Math.min(prevFloor, this.floors.length - 1) : 0;
+    this.activeFloor = Math.max(0, floor);
+    this.floorGroups.forEach((g, i) => (g.visible = i === this.activeFloor));
+
+    if (keepView) {
+      this.controls.target.copy(prevTarget);
+      this.camera.position.copy(prevPos);
+      this.controls.update();
+    } else {
+      this.resetView();
+    }
   }
 
   private clearPlan(): void {
@@ -217,8 +242,72 @@ export class SceneManager {
       const moved = Math.hypot(dx, dy);
       const dt = performance.now() - this.downTime;
       // Treat as a tap only if it didn't move much and wasn't a long press.
-      if (moved < 8 && dt < 600) this.handlePick(e);
+      if (moved >= 8 || dt >= 600) return;
+      if (this.editing && this.onGround?.click) {
+        const p = this.groundIntersect(e);
+        if (p) this.onGround.click(p, e);
+      } else {
+        this.handlePick(e);
+      }
     });
+    el.addEventListener('pointermove', (e) => {
+      if (this.editing && this.onGround?.move) {
+        const p = this.groundIntersect(e);
+        if (p) this.onGround.move(p, e);
+      }
+    });
+  }
+
+  // -- Editor API -------------------------------------------------------------
+
+  setEditMode(on: boolean, elevation = 0): void {
+    this.editing = on;
+    this.groundPlane.constant = -elevation;
+    if (on) {
+      if (!this.gridHelper) {
+        this.gridHelper = new THREE.GridHelper(40, 80, 0x4aa3ff, 0x2a3340);
+        (this.gridHelper.material as THREE.Material).transparent = true;
+        (this.gridHelper.material as THREE.Material).opacity = 0.5;
+        this.scene.add(this.gridHelper);
+      }
+      this.gridHelper.position.y = elevation + 0.002;
+      this.gridHelper.visible = true;
+    } else {
+      if (this.gridHelper) this.gridHelper.visible = false;
+      this.clearPreview();
+    }
+  }
+
+  setGroundHandler(h?: { click?: (p: THREE.Vector3, e: PointerEvent) => void; move?: (p: THREE.Vector3, e: PointerEvent) => void }): void {
+    this.onGround = h;
+  }
+
+  /** Enable/disable camera orbit + pan (zoom stays on so you never get stuck). */
+  setControlsEnabled(on: boolean): void {
+    this.controls.enableRotate = on;
+    this.controls.enablePan = on;
+  }
+
+  /** Raycast a pointer event onto the current ground plane. */
+  groundIntersect(e: PointerEvent): THREE.Vector3 | null {
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    this.pointer.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+    this.pointer.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+    this.raycaster.setFromCamera(this.pointer, this.camera);
+    const out = new THREE.Vector3();
+    return this.raycaster.ray.intersectPlane(this.groundPlane, out) ? out : null;
+  }
+
+  clearPreview(): void {
+    for (const child of [...this.previewGroup.children]) {
+      const mesh = child as THREE.Mesh;
+      if (mesh.geometry) mesh.geometry.dispose();
+      if (mesh.material) {
+        const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+        mats.forEach((m) => m.dispose());
+      }
+    }
+    this.previewGroup.clear();
   }
 
   private handlePick(e: PointerEvent): void {

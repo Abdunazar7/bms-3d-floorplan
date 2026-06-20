@@ -15,20 +15,8 @@ import { clickToService } from './scene/bindings';
 import { CARD_VERSION } from './version';
 import { installSidebar } from './sidebar';
 import { DEMO_PLAN } from './scene/demo-plan';
-
-/** localStorage key where the (future) in-app editor saves the default plan. */
-const STORAGE_KEY = 'ha3d-floorplan-default';
-
-function loadLocalPlan(): FloorPlan | null {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return null;
-    const plan = JSON.parse(raw) as FloorPlan;
-    return plan.floors?.length ? plan : null;
-  } catch {
-    return null;
-  }
-}
+import { EditorController, EditTool } from './editor/editor-controller';
+import { loadPlan as loadStoredPlan, savePlan, blankPlan } from './storage';
 
 @customElement('ha-3d-floorplan-card')
 export class Ha3dFloorplanCard extends LitElement {
@@ -38,6 +26,10 @@ export class Ha3dFloorplanCard extends LitElement {
   @state() private loadError?: string;
   @state() private floorNames: string[] = [];
   @state() private activeFloorIndex = 0;
+  @state() private editing = false;
+  @state() private editTool: EditTool = 'wall';
+  @state() private editPoints = 0;
+  @state() private toast?: string;
 
   @query('.viewport') private viewport?: HTMLDivElement;
 
@@ -45,6 +37,9 @@ export class Ha3dFloorplanCard extends LitElement {
   private planLoaded = false;
   private lastHass?: HomeAssistant;
   private pendingHass?: HomeAssistant;
+  private currentPlan?: FloorPlan;
+  private editor?: EditorController;
+  private toastTimer?: number;
 
   // -- Lovelace lifecycle -----------------------------------------------------
 
@@ -153,6 +148,7 @@ export class Ha3dFloorplanCard extends LitElement {
     this.planLoaded = false;
     try {
       const plan = await this.resolvePlan();
+      this.currentPlan = plan;
       this.sceneManager.loadPlan(plan);
       this.floorNames = plan.floors.map((f, i) => f.name || `Floor ${i + 1}`);
       this.activeFloorIndex = 0;
@@ -177,8 +173,9 @@ export class Ha3dFloorplanCard extends LitElement {
     }
     if (cfg.plan) return cfg.plan;
     if (cfg.url) return this.fetchPlan(cfg.url);
-    // Nothing configured → saved plan (localStorage) or built-in demo.
-    return loadLocalPlan() ?? DEMO_PLAN;
+    // Nothing configured → saved plan (HA shared / localStorage) or built-in demo.
+    const saved = await loadStoredPlan(this.hass);
+    return saved ?? DEMO_PLAN;
   }
 
   private async loadProjectRef(proj: ProjectRef): Promise<FloorPlan> {
@@ -242,6 +239,78 @@ export class Ha3dFloorplanCard extends LitElement {
     this.sceneManager?.resetView();
   }
 
+  // -- Editor -----------------------------------------------------------------
+
+  private enterEdit(): void {
+    if (!this.sceneManager || !this.currentPlan) return;
+    // Edit a deep copy so View mode keeps the last saved/loaded plan until save.
+    const editable: FloorPlan = JSON.parse(JSON.stringify(this.currentPlan));
+    this.editor = new EditorController(this.sceneManager, editable);
+    this.editor.onChange = () => {
+      this.editTool = this.editor!.tool;
+      this.editPoints = this.editor!.pointCount;
+      this.requestUpdate();
+    };
+    this.sceneManager.loadPlan(editable, true);
+    this.editor.start();
+    this.editing = true;
+    this.editTool = this.editor.tool;
+    this.showToast('Edit mode — pick "Draw wall", tap the floor to place points');
+  }
+
+  private exitEdit(): void {
+    this.editor?.stop();
+    this.editor = undefined;
+    this.editing = false;
+    // Reload the last saved/loaded plan for clean View mode.
+    if (this.currentPlan && this.sceneManager) {
+      this.sceneManager.loadPlan(this.currentPlan);
+      if (this.hass) {
+        this.lastHass = undefined;
+        this.applyHass(this.hass);
+      }
+    }
+  }
+
+  private onEditTool(t: EditTool): void {
+    this.editor?.setTool(t);
+  }
+
+  private onFinishChain(): void {
+    this.editor?.finishChain();
+  }
+
+  private onUndoPoint(): void {
+    this.editor?.undoPoint();
+  }
+
+  private onNewPlan(): void {
+    if (!this.editor) return;
+    this.editor.loadPlan(blankPlan());
+    this.showToast('Blank plan — draw your walls');
+  }
+
+  private async onSavePlan(): Promise<void> {
+    if (!this.editor) return;
+    const plan = this.editor.plan;
+    const res = await savePlan(plan, this.hass);
+    // Adopt the saved plan as the current View-mode plan.
+    this.currentPlan = JSON.parse(JSON.stringify(plan));
+    this.floorNames = plan.floors.map((f, i) => f.name || `Floor ${i + 1}`);
+    this.showToast(
+      res.ha ? 'Saved to Home Assistant (all devices)' : 'Saved locally (HA unavailable)',
+    );
+  }
+
+  private showToast(msg: string): void {
+    this.toast = msg;
+    if (this.toastTimer) clearTimeout(this.toastTimer);
+    this.toastTimer = window.setTimeout(() => {
+      this.toast = undefined;
+      this.requestUpdate();
+    }, 3200);
+  }
+
   // -- Lit lifecycle ----------------------------------------------------------
 
   public override connectedCallback(): void {
@@ -273,7 +342,33 @@ export class Ha3dFloorplanCard extends LitElement {
           <button class="btn" title="Reset view" @click=${this.onResetView}>
             ⌂ Reset
           </button>
+          ${this.editing
+            ? html`<button class="btn primary" title="Exit editor" @click=${this.exitEdit}>
+                ✓ Done
+              </button>`
+            : html`<button class="btn" title="Edit floor plan" @click=${this.enterEdit}>
+                ✎ Edit
+              </button>`}
         </div>
+
+        ${this.editing
+          ? html`
+              <div class="overlay top-left toolbar">
+                <button class="btn ${this.editTool === 'wall' ? 'active' : ''}"
+                  title="Draw walls" @click=${() => this.onEditTool('wall')}>▟ Draw wall</button>
+                <button class="btn ${this.editTool === 'orbit' ? 'active' : ''}"
+                  title="Move camera" @click=${() => this.onEditTool('orbit')}>✋ Move view</button>
+                <button class="btn" ?disabled=${this.editPoints < 2}
+                  title="Finish this run of walls" @click=${this.onFinishChain}>✓ Finish</button>
+                <button class="btn" ?disabled=${this.editPoints < 1}
+                  title="Undo last point" @click=${this.onUndoPoint}>⤺ Undo</button>
+                <button class="btn" title="Start a blank plan" @click=${this.onNewPlan}>✚ New</button>
+                <button class="btn primary" title="Save" @click=${this.onSavePlan}>💾 Save</button>
+              </div>
+            `
+          : nothing}
+
+        ${this.toast ? html`<div class="toast">${this.toast}</div>` : nothing}
 
         ${projects.length > 1
           ? html`
@@ -289,7 +384,7 @@ export class Ha3dFloorplanCard extends LitElement {
             `
           : nothing}
 
-        ${this.floorNames.length > 1
+        ${this.floorNames.length > 1 && !this.editing
           ? html`
               <div class="overlay bottom">
                 ${this.floorNames.map(
@@ -366,9 +461,39 @@ export class Ha3dFloorplanCard extends LitElement {
     .tab:hover {
       background: rgba(55, 60, 70, 0.9);
     }
-    .tab.active {
+    .tab.active,
+    .btn.active {
       background: var(--primary-color, #03a9f4);
       border-color: var(--primary-color, #03a9f4);
+    }
+    .btn.primary {
+      background: #2e7d32;
+      border-color: #2e7d32;
+    }
+    .btn[disabled] {
+      opacity: 0.4;
+      cursor: default;
+      pointer-events: none;
+    }
+    .toolbar {
+      flex-wrap: wrap;
+      max-width: calc(100% - 130px);
+    }
+    .toast {
+      position: absolute;
+      z-index: 4;
+      bottom: 14px;
+      left: 50%;
+      transform: translateX(-50%);
+      color: #fff;
+      background: rgba(20, 22, 26, 0.92);
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      padding: 9px 14px;
+      border-radius: 10px;
+      font-size: 13px;
+      max-width: 86%;
+      text-align: center;
+      backdrop-filter: blur(4px);
     }
     .error {
       position: absolute;

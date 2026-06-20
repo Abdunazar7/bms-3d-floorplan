@@ -186,11 +186,31 @@ Local preview without HA: serve the repo over HTTP and open `test/index.html`
 (e.g. `npx serve` then visit `/test/`). It mounts the card with a mock `hass`
 and buttons to simulate live state changes.
 
+## In-app editor (draw in 3D)
+
+Tap **✎ Edit** (top-right) to draw your floor plan directly in the 3D view —
+no JSON, no YAML, no external modeling tool:
+
+- **Draw wall** — tap the floor to place wall points (snapped to a 10 cm grid);
+  walls extrude up live. Tap near the first point (green ring) to close a room.
+- **Finish** ends an open run of walls; **Undo** removes the last point.
+- **Move view** temporarily frees the camera (orbit/pan) without drawing.
+- **New** starts a blank plan; **Save** stores it.
+- **✓ Done** returns to View mode.
+
+Saved plans go to **Home Assistant's per-user storage** (shared across all your
+devices — design PC and kiosk tablet), with a localStorage fallback. No backend
+or files required. With no `plan`/`url`/`projects` configured, the card loads
+your saved plan automatically, falling back to a built-in demo.
+
+> Furniture placement and tap-to-bind entity selection (HA entity dropdown) are
+> the next editor increment.
+
 ## Roadmap
 
-- **Phase 1 (done):** render + bind + touch hardening + JSON/visual config editor.
-- **Phase 2:** in-card top-down 2D wall-drawing editor, furniture palette,
-  entity-binding dropdowns, save-to-Lovelace-config.
+- **Phase 1 (done):** render + bind + touch hardening + config editor.
+- **Phase 2 (in progress):** in-app 3D editor — ✅ wall drawing + HA-shared
+  save; next: furniture palette + entity-picker binding in 3D.
 - **Stretch:** optional Node backend for versioned project files + GLB export.
 
 ## License
