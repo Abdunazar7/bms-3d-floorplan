@@ -17,7 +17,7 @@ import { installSidebar } from './sidebar';
 import { DEMO_PLAN } from './scene/demo-plan';
 import { EditorController, EditTool } from './editor/editor-controller';
 import { loadPlan as loadStoredPlan, savePlan, blankPlan } from './storage';
-import { FURNITURE_KEYS, LIGHT_KEYS } from './furniture/library';
+import { FURNITURE_KEYS, LIGHT_KEYS, entityDomainsFor } from './furniture/library';
 import { getThumbnail } from './furniture/thumbnails';
 
 @customElement('ha-3d-floorplan-card')
@@ -37,6 +37,7 @@ export class Ha3dFloorplanCard extends LitElement {
   @state() private editSelectedId: string | null = null;
   @state() private editSelectedModel = 'sofa';
   @state() private editSelectedEntity: string | null = null;
+  @state() private editSelectedObjModel: string | null = null;
   @state() private paletteOpen = false;
   @state() private toast?: string;
 
@@ -269,6 +270,7 @@ export class Ha3dFloorplanCard extends LitElement {
       this.editSelectedId = ed.selectedId;
       this.editSelectedModel = ed.selectedModel;
       this.editSelectedEntity = ed.selectedEntity;
+      this.editSelectedObjModel = ed.selectedObjectModel;
       this.requestUpdate();
     };
     this.sceneManager.loadPlan(editable, true);
@@ -306,8 +308,14 @@ export class Ha3dFloorplanCard extends LitElement {
 
   private onNewPlan(): void {
     if (!this.editor) return;
+    // New only clears the editing canvas — your last SAVED plan stays in storage
+    // until you press Save again. Confirm so unsaved work isn't lost by accident.
+    const ok = window.confirm(
+      'Start a blank plan?\n\nUnsaved changes will be lost. Your last SAVED plan stays until you Save the blank one over it.',
+    );
+    if (!ok) return;
     this.editor.loadPlan(blankPlan());
-    this.showToast('Blank plan — draw your walls');
+    this.showToast('Blank plan — draw your walls (not saved yet)');
   }
 
   private pickModel(model: string): void {
@@ -442,14 +450,23 @@ export class Ha3dFloorplanCard extends LitElement {
               <button class="btn" title="Delete" @click=${this.onDeleteSelected}>🗑 Delete</button>
             </div>
             ${this.hass
-              ? html`<div class="toolrow">
-                  <ha-entity-picker
-                    .hass=${this.hass}
-                    .value=${this.editSelectedEntity ?? ''}
-                    allow-custom-entity
-                    @value-changed=${this.onBindEntity}
-                  ></ha-entity-picker>
-                </div>`
+              ? (() => {
+                  const domains = this.editSelectedObjModel
+                    ? entityDomainsFor(this.editSelectedObjModel)
+                    : [];
+                  return html`<div class="toolrow">
+                      <ha-entity-picker
+                        .hass=${this.hass}
+                        .value=${this.editSelectedEntity ?? ''}
+                        .includeDomains=${domains.length ? domains : undefined}
+                        allow-custom-entity
+                        @value-changed=${this.onBindEntity}
+                      ></ha-entity-picker>
+                    </div>
+                    ${domains.length
+                      ? html`<span class="hint">showing ${domains.join(', ')} entities for this ${this.editSelectedObjModel?.replace(/_/g, ' ')}</span>`
+                      : nothing}`;
+                })()
               : nothing}`
           : nothing}
 

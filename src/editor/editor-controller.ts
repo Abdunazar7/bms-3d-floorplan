@@ -79,6 +79,13 @@ export class EditorController {
     return b?.entity_id ?? null;
   }
 
+  /** Model key of the currently selected placement (for domain-filtered binding). */
+  get selectedObjectModel(): string | null {
+    if (!this.selectedId) return null;
+    const f = this.floor().furniture?.find((x) => x.id === this.selectedId);
+    return f?.model ?? null;
+  }
+
   // -- Furniture / selection --------------------------------------------------
 
   private placeFurniture(p: THREE.Vector3): void {

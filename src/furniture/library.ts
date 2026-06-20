@@ -474,6 +474,49 @@ export const LIGHT_KEYS = [
   'led_strip',
 ];
 
+/**
+ * Likely Home Assistant entity domains for a furniture model, used to filter the
+ * entity picker when binding (so selecting a lamp offers light.* entities, an AC
+ * offers climate.*, a TV offers media_player, a curtain offers cover, …).
+ * Returns [] to mean "no filter — show all entities".
+ */
+export function entityDomainsFor(model: string): string[] {
+  if (LIGHT_KEYS.includes(model)) return ['light', 'switch'];
+  switch (model) {
+    case 'ac_unit':
+      return ['climate', 'fan', 'switch'];
+    case 'tv':
+    case 'tv_stand':
+      return ['media_player', 'switch'];
+    case 'speaker':
+      return ['media_player'];
+    case 'curtain':
+      return ['cover'];
+    case 'door':
+    case 'double_door':
+    case 'sliding_door':
+      return ['lock', 'cover', 'binary_sensor'];
+    case 'security_camera':
+      return ['camera', 'binary_sensor'];
+    case 'intercom':
+      return ['camera', 'lock', 'binary_sensor'];
+    case 'fridge':
+    case 'washing_machine':
+    case 'dishwasher':
+    case 'stove':
+    case 'oven':
+    case 'microwave':
+      return ['switch', 'sensor', 'binary_sensor'];
+    case 'toilet':
+    case 'bathtub':
+    case 'shower':
+    case 'sink':
+      return ['sensor', 'binary_sensor', 'switch'];
+    default:
+      return [];
+  }
+}
+
 /** Default vertical offset (meters) so a placed piece sits naturally. Lights
  *  default to near the ceiling; everything else on the floor. */
 export function defaultY(model: string, wallHeight = 2.6): number {
