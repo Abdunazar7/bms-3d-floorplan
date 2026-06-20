@@ -129,6 +129,19 @@ function resolveConfig(s: SidebarSettings): Record<string, any> {
   };
 }
 
+/** Right edge (x) of the sidebar in viewport coords, so the overlay can start
+ *  just after it and never cover the sidebar. 0 when the sidebar is hidden
+ *  (e.g. mobile drawer closed). */
+function sidebarRightEdge(): number {
+  const ha = document.querySelector('home-assistant') as any;
+  const main = ha?.shadowRoot?.querySelector('home-assistant-main') as any;
+  const sidebar = main?.shadowRoot?.querySelector('ha-sidebar') as HTMLElement | null;
+  if (!sidebar) return 0;
+  const rect = sidebar.getBoundingClientRect();
+  if (rect.width === 0 || rect.right <= 0) return 0; // hidden / off-screen
+  return Math.max(0, Math.round(rect.right));
+}
+
 function openOverlay(s: SidebarSettings): void {
   if (document.getElementById(OVERLAY_ID)) return;
 
@@ -136,11 +149,32 @@ function openOverlay(s: SidebarSettings): void {
   overlay.id = OVERLAY_ID;
   overlay.style.cssText = [
     'position:fixed',
-    'inset:0',
+    'top:0',
+    'right:0',
+    'bottom:0',
+    'left:0',
     'z-index:9999',
     'background:var(--primary-background-color, #111)',
     'display:block',
   ].join(';');
+
+  // Keep the overlay clear of the sidebar, tracking expand/collapse/resize.
+  const applyOffset = () => {
+    overlay.style.left = `${sidebarRightEdge()}px`;
+  };
+  applyOffset();
+  window.addEventListener('resize', applyOffset);
+  let offsetRO: ResizeObserver | undefined;
+  const haMain = (document.querySelector('home-assistant') as any)?.shadowRoot?.querySelector(
+    'home-assistant-main',
+  ) as any;
+  const sidebarEl = haMain?.shadowRoot?.querySelector('ha-sidebar') as HTMLElement | null;
+  if (sidebarEl && 'ResizeObserver' in window) {
+    offsetRO = new ResizeObserver(applyOffset);
+    offsetRO.observe(sidebarEl);
+  }
+  // Fallback: re-check periodically (collapse animation, theme changes).
+  const offsetTimer = window.setInterval(applyOffset, 500);
 
   const close = document.createElement('button');
   close.textContent = '✕';
@@ -178,6 +212,9 @@ function openOverlay(s: SidebarSettings): void {
 
   const dispose = () => {
     window.clearInterval(timer);
+    window.clearInterval(offsetTimer);
+    window.removeEventListener('resize', applyOffset);
+    offsetRO?.disconnect();
     overlay.remove();
     document.removeEventListener('keydown', onKey);
   };

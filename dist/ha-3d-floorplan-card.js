@@ -20446,7 +20446,7 @@ function yy(i) {
     t.geometry && t.geometry.dispose(), t.material && (Array.isArray(t.material) ? t.material : [t.material]).forEach((s) => s.dispose());
   });
 }
-const My = "0.2.0", Ac = "ha-3d-floorplan-sidebar-item", Ih = "ha-3d-floorplan-overlay";
+const My = "0.2.1", Ac = "ha-3d-floorplan-sidebar-item", Ih = "ha-3d-floorplan-overlay";
 function Sy() {
   return window.ha3dFloorplan ?? {};
 }
@@ -20487,7 +20487,7 @@ function Ay(i) {
   t.setAttribute("icon", i.icon ?? "mdi:floor-plan"), t.style.cssText = "width:24px;height:24px;flex:0 0 24px;";
   const n = document.createElement("span");
   return n.textContent = i.title ?? "3D Floor Plan", n.style.cssText = "white-space:nowrap;overflow:hidden;text-overflow:ellipsis;", e.appendChild(t), e.appendChild(n), e.addEventListener("mouseenter", () => e.style.background = "var(--sidebar-selected-icon-color, rgba(255,255,255,0.06))"), e.addEventListener("mouseleave", () => e.style.background = "transparent"), e.addEventListener("click", (s) => {
-    s.preventDefault(), Ry(i);
+    s.preventDefault(), Cy(i);
   }), e;
 }
 function Dh(i, e) {
@@ -20503,18 +20503,36 @@ function wy(i) {
     url: i.url ?? "/local/floorplans/home.json"
   };
 }
-function Ry(i) {
+function Ry() {
+  const t = document.querySelector("home-assistant")?.shadowRoot?.querySelector("home-assistant-main")?.shadowRoot?.querySelector("ha-sidebar");
+  if (!t) return 0;
+  const n = t.getBoundingClientRect();
+  return n.width === 0 || n.right <= 0 ? 0 : Math.max(0, Math.round(n.right));
+}
+function Cy(i) {
   if (document.getElementById(Ih)) return;
   const e = document.createElement("div");
   e.id = Ih, e.style.cssText = [
     "position:fixed",
-    "inset:0",
+    "top:0",
+    "right:0",
+    "bottom:0",
+    "left:0",
     "z-index:9999",
     "background:var(--primary-background-color, #111)",
     "display:block"
   ].join(";");
-  const t = document.createElement("button");
-  t.textContent = "✕", t.title = "Close", t.style.cssText = [
+  const t = () => {
+    e.style.left = `${Ry()}px`;
+  };
+  t(), window.addEventListener("resize", t);
+  let n;
+  const r = document.querySelector("home-assistant")?.shadowRoot?.querySelector(
+    "home-assistant-main"
+  )?.shadowRoot?.querySelector("ha-sidebar");
+  r && "ResizeObserver" in window && (n = new ResizeObserver(t), n.observe(r));
+  const o = window.setInterval(t, 500), a = document.createElement("button");
+  a.textContent = "✕", a.title = "Close", a.style.cssText = [
     "position:absolute",
     "top:14px",
     "left:14px",
@@ -20529,25 +20547,25 @@ function Ry(i) {
     "cursor:pointer",
     "backdrop-filter:blur(4px)"
   ].join(";");
-  const n = document.createElement("ha-3d-floorplan-card");
-  n.style.cssText = "display:block;width:100%;height:100%;";
+  const c = document.createElement("ha-3d-floorplan-card");
+  c.style.cssText = "display:block;width:100%;height:100%;";
   try {
-    n.setConfig(wy(i));
-  } catch (c) {
-    console.error("[3d-floorplan] sidebar config error:", c);
+    c.setConfig(wy(i));
+  } catch (f) {
+    console.error("[3d-floorplan] sidebar config error:", f);
   }
-  const s = document.querySelector("home-assistant");
-  s?.hass && (n.hass = s.hass);
-  const r = window.setInterval(() => {
-    s?.hass && (n.hass = s.hass);
-  }, 1e3), o = () => {
-    window.clearInterval(r), e.remove(), document.removeEventListener("keydown", a);
-  }, a = (c) => {
-    c.key === "Escape" && o();
+  const l = document.querySelector("home-assistant");
+  l?.hass && (c.hass = l.hass);
+  const h = window.setInterval(() => {
+    l?.hass && (c.hass = l.hass);
+  }, 1e3), u = () => {
+    window.clearInterval(h), window.clearInterval(o), window.removeEventListener("resize", t), n?.disconnect(), e.remove(), document.removeEventListener("keydown", d);
+  }, d = (f) => {
+    f.key === "Escape" && u();
   };
-  t.addEventListener("click", o), document.addEventListener("keydown", a), e.appendChild(t), e.appendChild(n), document.body.appendChild(e);
+  a.addEventListener("click", u), document.addEventListener("keydown", d), e.appendChild(a), e.appendChild(c), document.body.appendChild(e);
 }
-async function Cy() {
+async function Py() {
   const i = Sy();
   if (i.sidebar === !1) return;
   const e = await Ty();
@@ -20563,10 +20581,10 @@ async function Cy() {
     t.getElementById(Ac) || Dh(e, i);
   }).observe(t, { childList: !0, subtree: !0 });
 }
-var Py = Object.defineProperty, Ly = Object.getOwnPropertyDescriptor, Kn = (i, e, t, n) => {
-  for (var s = n > 1 ? void 0 : n ? Ly(e, t) : e, r = i.length - 1, o; r >= 0; r--)
+var Ly = Object.defineProperty, Iy = Object.getOwnPropertyDescriptor, Kn = (i, e, t, n) => {
+  for (var s = n > 1 ? void 0 : n ? Iy(e, t) : e, r = i.length - 1, o; r >= 0; r--)
     (o = i[r]) && (s = (n ? o(e, t, s) : o(s)) || s);
-  return n && s && Py(e, t, s), s;
+  return n && s && Ly(e, t, s), s;
 };
 let hn = class extends Vi {
   constructor() {
@@ -20614,7 +20632,7 @@ let hn = class extends Vi {
     };
   }
   static async getConfigElement() {
-    return await Promise.resolve().then(() => Ny), document.createElement("ha-3d-floorplan-card-editor");
+    return await Promise.resolve().then(() => Uy), document.createElement("ha-3d-floorplan-card-editor");
   }
   // -- hass updates -----------------------------------------------------------
   willUpdate(i) {
@@ -20866,11 +20884,11 @@ console.info(
   "color:#fff;background:#03a9f4;border-radius:4px 0 0 4px;padding:2px 6px",
   "color:#03a9f4;background:#222;border-radius:0 4px 4px 0;padding:2px 6px"
 );
-Cy();
-var Iy = Object.defineProperty, Dy = Object.getOwnPropertyDescriptor, Js = (i, e, t, n) => {
-  for (var s = n > 1 ? void 0 : n ? Dy(e, t) : e, r = i.length - 1, o; r >= 0; r--)
+Py();
+var Dy = Object.defineProperty, Ny = Object.getOwnPropertyDescriptor, Js = (i, e, t, n) => {
+  for (var s = n > 1 ? void 0 : n ? Ny(e, t) : e, r = i.length - 1, o; r >= 0; r--)
     (o = i[r]) && (s = (n ? o(e, t, s) : o(s)) || s);
-  return n && s && Iy(e, t, s), s;
+  return n && s && Dy(e, t, s), s;
 };
 let Yn = class extends Vi {
   constructor() {
@@ -21033,7 +21051,7 @@ Js([
 Yn = Js([
   kh("ha-3d-floorplan-card-editor")
 ], Yn);
-const Ny = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
+const Uy = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
   __proto__: null,
   get Ha3dFloorplanCardEditor() {
     return Yn;
