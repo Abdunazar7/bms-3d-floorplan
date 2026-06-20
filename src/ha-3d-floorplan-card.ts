@@ -38,6 +38,8 @@ export class Ha3dFloorplanCard extends LitElement {
   @state() private editSelectedModel = 'sofa';
   @state() private editSelectedEntity: string | null = null;
   @state() private editSelectedObjModel: string | null = null;
+  @state() private editShowAllEntities = false;
+  @state() private editSnap = true;
   @state() private paletteOpen = false;
   @state() private toast?: string;
 
@@ -306,6 +308,12 @@ export class Ha3dFloorplanCard extends LitElement {
     this.editor?.undoPoint();
   }
 
+  private onToggleSnap(): void {
+    if (!this.editor) return;
+    this.editSnap = !this.editSnap;
+    this.editor.setSnap(this.editSnap);
+  }
+
   private onNewPlan(): void {
     if (!this.editor) return;
     // New only clears the editing canvas — your last SAVED plan stays in storage
@@ -343,12 +351,16 @@ export class Ha3dFloorplanCard extends LitElement {
     this.showToast(entityId ? `Bound ${entityId}` : 'Binding cleared');
   }
 
-  /** Entity ids for the selected piece, filtered by its natural domain(s). */
+  /** Entity ids for the selected piece, filtered by its natural domain(s).
+   *  If the domain filter matches nothing, fall back to ALL entities so the
+   *  dropdown is never empty. */
   private candidateEntities(domains: string[]): string[] {
     if (!this.hass) return [];
-    const ids = Object.keys(this.hass.states).filter(
-      (id) => !domains.length || domains.includes(id.split('.')[0]),
-    );
+    const all = Object.keys(this.hass.states);
+    let ids = domains.length
+      ? all.filter((id) => domains.includes(id.split('.')[0]))
+      : all;
+    if (ids.length === 0) ids = all; // filter too strict → show everything
     ids.sort((a, b) => this.entityLabel(a).localeCompare(this.entityLabel(b)));
     return ids;
   }
@@ -433,6 +445,9 @@ export class Ha3dFloorplanCard extends LitElement {
                 title="End this run (start a new wall elsewhere)" @click=${this.onFinishChain}>⤓ End run</button>
               <button class="btn" ?disabled=${this.editPoints < 1}
                 title="Undo last wall" @click=${this.onUndoPoint}>⤺ Undo</button>
+              <button class="btn ${this.editSnap ? 'active' : ''}"
+                title="Snap assist: parallel/perpendicular angles, equal lengths, alignment"
+                @click=${this.onToggleSnap}>🧲 Snap</button>
             </div>`
           : nothing}
 
@@ -465,9 +480,10 @@ export class Ha3dFloorplanCard extends LitElement {
             </div>
             ${this.hass
               ? (() => {
-                  const domains = this.editSelectedObjModel
-                    ? entityDomainsFor(this.editSelectedObjModel)
-                    : [];
+                  const domains =
+                    this.editShowAllEntities || !this.editSelectedObjModel
+                      ? []
+                      : entityDomainsFor(this.editSelectedObjModel);
                   const ids = this.candidateEntities(domains);
                   return html`<div class="toolrow">
                       <select class="select wide" @change=${this.onPickEntity}>
@@ -480,12 +496,19 @@ export class Ha3dFloorplanCard extends LitElement {
                           </option>`,
                         )}
                       </select>
+                      <button
+                        class="btn ${this.editShowAllEntities ? 'active' : ''}"
+                        title="Show all entities (ignore type filter)"
+                        @click=${() => (this.editShowAllEntities = !this.editShowAllEntities)}
+                      >
+                        All
+                      </button>
                     </div>
                     <span class="hint">
                       ${this.editSelectedEntity
                         ? `bound: ${this.editSelectedEntity}`
                         : domains.length
-                          ? `${ids.length} ${domains.join(' / ')} entities`
+                          ? `${ids.length} ${domains.join(' / ')} entities (tap All for every entity)`
                           : `${ids.length} entities`}
                     </span>`;
                 })()
@@ -499,7 +522,7 @@ export class Ha3dFloorplanCard extends LitElement {
           ? html`<span class="hint">tap a wall to add a ${tool}</span>`
           : nothing}
         ${tool === 'wall'
-          ? html`<span class="hint">tap 2 points = 1 wall (auto) · green node = join · right-drag / two-finger to orbit</span>`
+          ? html`<span class="hint">2 taps = 1 wall · 🧲 snaps parallel/right-angle + equal length (green = aided) · right-drag / two-finger to orbit</span>`
           : nothing}
 
         <div class="toolrow">

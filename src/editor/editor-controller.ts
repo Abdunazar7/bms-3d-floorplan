@@ -14,6 +14,7 @@ import * as THREE from 'three';
 import type { FloorPlan, FloorDef, WallDef, Vec2 } from '../types';
 import type { SceneManager } from '../scene/scene-manager';
 import { defaultY } from '../furniture/library';
+import { TextLabel } from '../scene/labels';
 
 export type EditTool = 'orbit' | 'wall' | 'furniture' | 'select' | 'door' | 'window';
 
@@ -21,7 +22,24 @@ const SNAP = 0.1; // grid snap, meters
 const CLOSE_DIST = 0.4; // distance to first point that closes a room
 const VERT_SNAP = 0.3; // snap a new point onto an existing wall endpoint
 
+// Drawing aids ("magnet"):
+const ANGLE_STEP = Math.PI / 12; // 15° — strong pull to parallel/perpendicular
+const LEN_TOL = 0.3; // snap a segment's length to a nearby existing wall length
+const ALIGN_TOL = 0.25; // align the first point's x/z with an existing endpoint
+
 const snap = (v: number) => Math.round(v / SNAP) * SNAP;
+
+interface SnapResult {
+  pt: Vec2;
+  /** Snapped onto an existing endpoint (walls join). */
+  joined: boolean;
+  /** Segment length equals an existing wall's length. */
+  matchedLen: boolean;
+  /** Segment is parallel to an existing wall. */
+  parallel: boolean;
+  lengthM: number;
+  angleDeg: number;
+}
 
 export class EditorController {
   plan: FloorPlan;
@@ -37,6 +55,10 @@ export class EditorController {
   /** Points of the wall run being drawn; each new click commits a wall. */
   private chain: Vec2[] = [];
   private cursor: Vec2 | null = null;
+  /** Drawing aids on/off (angle/length/alignment snapping). */
+  snapEnabled = true;
+  private snapInfo: SnapResult | null = null;
+  private measureLabel?: TextLabel;
 
   constructor(sm: SceneManager, plan: FloorPlan) {
     this.sm = sm;
@@ -48,15 +70,30 @@ export class EditorController {
   }
 
   start(): void {
+    // A persistent floating label that shows the live segment length/angle while
+    // drawing. Kept outside previewGroup so it survives clearPreview().
+    this.measureLabel = new TextLabel(1.2);
+    this.measureLabel.sprite.visible = false;
+    this.sm.scene.add(this.measureLabel.sprite);
     this.applySceneEditState();
     this.setTool('wall');
   }
 
   stop(): void {
     this.cancelChain();
+    if (this.measureLabel) {
+      this.sm.scene.remove(this.measureLabel.sprite);
+      this.measureLabel.dispose();
+      this.measureLabel = undefined;
+    }
     this.sm.setGroundHandler(undefined);
     this.sm.setEditMode(false);
     this.sm.setDrawMode(false);
+  }
+
+  setSnap(on: boolean): void {
+    this.snapEnabled = on;
+    this.onChange?.();
   }
 
   setTool(t: EditTool): void {
@@ -227,7 +264,9 @@ export class EditorController {
 
   private onMove(p: THREE.Vector3): void {
     if (this.tool !== 'wall' || this.chain.length === 0) return;
-    this.cursor = this.snapPoint(p.x, p.z).pt;
+    const r = this.snapPoint(p.x, p.z);
+    this.cursor = r.pt;
+    this.snapInfo = r;
     this.renderPreview();
   }
 
@@ -243,8 +282,28 @@ export class EditorController {
     fl.rooms.push({ polygon: points.map((p) => [p[0], p[1]] as Vec2) });
   }
 
-  /** Snap to a nearby existing wall endpoint (so walls connect), else grid. */
-  private snapPoint(x: number, z: number): { pt: Vec2; snapped: boolean } {
+  /**
+   * Snap a candidate point with drawing aids, in priority:
+   *  1) join — onto a nearby existing endpoint / chain vertex,
+   *  2) angle — snap the segment direction to 15° steps (parallel / perpendicular),
+   *  3) length — match a nearby existing wall's length (equal-length walls),
+   * plus first-point axis alignment. Disabled when snapEnabled is false (free grid).
+   */
+  private snapPoint(x: number, z: number): SnapResult {
+    const last = this.chain[this.chain.length - 1] as Vec2 | undefined;
+    const angTo = (a: Vec2, b: Vec2) =>
+      (Math.atan2(b[1] - a[1], b[0] - a[0]) * 180) / Math.PI;
+    const make = (pt: Vec2, extra: Partial<SnapResult> = {}): SnapResult => ({
+      pt,
+      joined: false,
+      matchedLen: false,
+      parallel: false,
+      lengthM: last ? Math.hypot(pt[0] - last[0], pt[1] - last[1]) : 0,
+      angleDeg: last ? angTo(last, pt) : 0,
+      ...extra,
+    });
+
+    // 1) Join to an existing endpoint or chain vertex.
     let best: Vec2 | null = null;
     let bd = VERT_SNAP;
     for (const c of [...this.existingEndpoints(), ...this.chain]) {
@@ -254,8 +313,53 @@ export class EditorController {
         best = c;
       }
     }
-    if (best) return { pt: [best[0], best[1]], snapped: true };
-    return { pt: [snap(x), snap(z)], snapped: false };
+    if (best) return make([best[0], best[1]], { joined: true });
+
+    if (!this.snapEnabled) return make([snap(x), snap(z)]);
+
+    // First point of a run: align x/z with an existing endpoint if close.
+    if (!last) {
+      let px = snap(x);
+      let pz = snap(z);
+      for (const e of this.existingEndpoints()) {
+        if (Math.abs(x - e[0]) < ALIGN_TOL) px = e[0];
+        if (Math.abs(z - e[1]) < ALIGN_TOL) pz = e[1];
+      }
+      return make([px, pz]);
+    }
+
+    // 2) Angle snap relative to the previous point.
+    const dx = x - last[0];
+    const dz = z - last[1];
+    const rawLen = Math.hypot(dx, dz);
+    if (rawLen < 1e-4) return make([last[0], last[1]]);
+    const ang = Math.round(Math.atan2(dz, dx) / ANGLE_STEP) * ANGLE_STEP;
+
+    // 3) Length: match a nearby existing wall length, else grid.
+    let finalLen = Math.round(rawLen / SNAP) * SNAP;
+    let matchedLen = false;
+    let bestDiff = LEN_TOL;
+    for (const w of this.floor().walls ?? []) {
+      const wl = Math.hypot(w.end[0] - w.start[0], w.end[1] - w.start[1]);
+      if (Math.abs(wl - rawLen) < bestDiff) {
+        bestDiff = Math.abs(wl - rawLen);
+        finalLen = wl;
+        matchedLen = true;
+      }
+    }
+
+    let pt: Vec2 = [last[0] + Math.cos(ang) * finalLen, last[1] + Math.sin(ang) * finalLen];
+    pt = [snap(pt[0]), snap(pt[1])];
+
+    // Parallel to any existing wall?
+    const parallel = (this.floor().walls ?? []).some((w) => {
+      const wa = Math.atan2(w.end[1] - w.start[1], w.end[0] - w.start[0]);
+      let diff = Math.abs(wa - ang) % Math.PI;
+      if (diff > Math.PI / 2) diff = Math.PI - diff;
+      return diff < 0.03;
+    });
+
+    return make(pt, { matchedLen, parallel });
   }
 
   private existingEndpoints(): Vec2[] {
@@ -328,6 +432,8 @@ export class EditorController {
   cancelChain(): void {
     this.chain = [];
     this.cursor = null;
+    this.snapInfo = null;
+    if (this.measureLabel) this.measureLabel.sprite.visible = false;
     this.sm.clearPreview();
     this.onChange?.();
   }
@@ -368,20 +474,45 @@ export class EditorController {
       group.add(dot);
     }
 
-    // Segment ghosts.
+    // Segment ghosts. The active (last) segment is tinted green when a drawing
+    // aid is engaged (length matched or parallel to an existing wall).
     for (let i = 0; i < chain.length - 1; i++) {
       const a = chain[i];
       const b = chain[i + 1];
       const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
       if (len < 1e-3) continue;
+      const isActive = i === chain.length - 2 && !!this.cursor;
+      const aided = isActive && this.snapInfo && (this.snapInfo.matchedLen || this.snapInfo.parallel);
       const mesh = new THREE.Mesh(
         new THREE.BoxGeometry(len, h, 0.1),
-        new THREE.MeshBasicMaterial({ color: 0x44aaff, transparent: true, opacity: 0.35 }),
+        new THREE.MeshBasicMaterial({
+          color: aided ? 0x4fd06a : 0x44aaff,
+          transparent: true,
+          opacity: aided ? 0.5 : 0.35,
+        }),
       );
       const angle = Math.atan2(b[1] - a[1], b[0] - a[0]);
       mesh.position.set((a[0] + b[0]) / 2, elev + h / 2, (a[1] + b[1]) / 2);
       mesh.rotation.y = -angle;
       group.add(mesh);
+    }
+
+    // Live measurement label on the active segment.
+    if (this.measureLabel) {
+      if (this.cursor && this.chain.length >= 1 && this.snapInfo) {
+        const a = this.chain[this.chain.length - 1];
+        const b = this.cursor;
+        const si = this.snapInfo;
+        const tags = `${si.parallel ? ' ∥' : ''}${si.matchedLen ? ' =' : ''}`;
+        this.measureLabel.setText(
+          `${si.lengthM.toFixed(2)}m  ${Math.round(((si.angleDeg % 360) + 360) % 360)}°${tags}`,
+          si.matchedLen || si.parallel ? '#7CFC8A' : '#ffffff',
+        );
+        this.measureLabel.setPosition((a[0] + b[0]) / 2, elev + h + 0.4, (a[1] + b[1]) / 2);
+        this.measureLabel.sprite.visible = true;
+      } else {
+        this.measureLabel.sprite.visible = false;
+      }
     }
 
     // Highlight the closing target when near the start.
