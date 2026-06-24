@@ -47,7 +47,7 @@
           ],
           "end": [
             34.4,
-            14
+            15.35
           ],
           "material": "plaster",
           "openings": [
@@ -61,11 +61,11 @@
         {
           "start": [
             34.4,
-            14
+            15.35
           ],
           "end": [
             0,
-            14
+            15.35
           ],
           "material": "plaster",
           "openings": [
@@ -89,7 +89,7 @@
         {
           "start": [
             0,
-            14
+            15.35
           ],
           "end": [
             0,
@@ -111,7 +111,7 @@
           ],
           "end": [
             5.6,
-            14
+            15.35
           ],
           "material": "plaster",
           "openings": [
@@ -134,7 +134,7 @@
           ],
           "end": [
             8.2,
-            14
+            15.35
           ],
           "material": "plaster",
           "openings": [
@@ -157,7 +157,7 @@
           ],
           "end": [
             13.2,
-            14
+            15.35
           ],
           "material": "plaster",
           "openings": [
@@ -180,7 +180,7 @@
           ],
           "end": [
             21.2,
-            14
+            15.35
           ],
           "material": "plaster",
           "openings": [
@@ -203,7 +203,7 @@
           ],
           "end": [
             26.2,
-            14
+            15.35
           ],
           "material": "plaster",
           "openings": [
@@ -226,7 +226,7 @@
           ],
           "end": [
             28.8,
-            14
+            15.35
           ],
           "material": "plaster",
           "openings": [
@@ -245,11 +245,11 @@
         {
           "start": [
             0,
-            6
+            8.08
           ],
           "end": [
             13.2,
-            6
+            8.08
           ],
           "material": "plaster",
           "openings": [
@@ -268,11 +268,57 @@
         {
           "start": [
             21.2,
-            6
+            8.08
           ],
           "end": [
             34.4,
-            6
+            8.08
+          ],
+          "material": "plaster",
+          "openings": [
+            {
+              "kind": "door",
+              "position": 3,
+              "width": 1
+            },
+            {
+              "kind": "door",
+              "position": 10.5,
+              "width": 1
+            }
+          ]
+        },
+        {
+          "start": [
+            0,
+            9.35
+          ],
+          "end": [
+            13.2,
+            9.35
+          ],
+          "material": "plaster",
+          "openings": [
+            {
+              "kind": "door",
+              "position": 3,
+              "width": 1
+            },
+            {
+              "kind": "door",
+              "position": 10.5,
+              "width": 1
+            }
+          ]
+        },
+        {
+          "start": [
+            21.2,
+            9.35
+          ],
+          "end": [
+            34.4,
+            9.35
           ],
           "material": "plaster",
           "openings": [
@@ -303,11 +349,11 @@
             ],
             [
               34.4,
-              14
+              15.35
             ],
             [
               0,
-              14
+              15.35
             ]
           ],
           "color": "#c7c3bb",
@@ -581,7 +627,7 @@
           ],
           "end": [
             34.4,
-            14
+            15.35
           ],
           "material": "plaster",
           "openings": [
@@ -595,11 +641,11 @@
         {
           "start": [
             34.4,
-            14
+            15.35
           ],
           "end": [
             0,
-            14
+            15.35
           ],
           "material": "plaster",
           "openings": [
@@ -623,7 +669,7 @@
         {
           "start": [
             0,
-            14
+            15.35
           ],
           "end": [
             0,
@@ -645,7 +691,7 @@
           ],
           "end": [
             5.6,
-            14
+            15.35
           ],
           "material": "plaster",
           "openings": [
@@ -668,7 +714,7 @@
           ],
           "end": [
             8.2,
-            14
+            15.35
           ],
           "material": "plaster",
           "openings": [
@@ -691,7 +737,7 @@
           ],
           "end": [
             13.2,
-            14
+            15.35
           ],
           "material": "plaster",
           "openings": [
@@ -714,7 +760,7 @@
           ],
           "end": [
             21.2,
-            14
+            15.35
           ],
           "material": "plaster",
           "openings": [
@@ -737,7 +783,7 @@
           ],
           "end": [
             26.2,
-            14
+            15.35
           ],
           "material": "plaster",
           "openings": [
@@ -760,7 +806,7 @@
           ],
           "end": [
             28.8,
-            14
+            15.35
           ],
           "material": "plaster",
           "openings": [
@@ -779,11 +825,11 @@
         {
           "start": [
             0,
-            6
+            8.08
           ],
           "end": [
             13.2,
-            6
+            8.08
           ],
           "material": "plaster",
           "openings": [
@@ -802,11 +848,57 @@
         {
           "start": [
             21.2,
-            6
+            8.08
           ],
           "end": [
             34.4,
-            6
+            8.08
+          ],
+          "material": "plaster",
+          "openings": [
+            {
+              "kind": "door",
+              "position": 3,
+              "width": 1
+            },
+            {
+              "kind": "door",
+              "position": 10.5,
+              "width": 1
+            }
+          ]
+        },
+        {
+          "start": [
+            0,
+            9.35
+          ],
+          "end": [
+            13.2,
+            9.35
+          ],
+          "material": "plaster",
+          "openings": [
+            {
+              "kind": "door",
+              "position": 3,
+              "width": 1
+            },
+            {
+              "kind": "door",
+              "position": 10.5,
+              "width": 1
+            }
+          ]
+        },
+        {
+          "start": [
+            21.2,
+            9.35
+          ],
+          "end": [
+            34.4,
+            9.35
           ],
           "material": "plaster",
           "openings": [
@@ -837,11 +929,11 @@
             ],
             [
               34.4,
-              14
+              15.35
             ],
             [
               0,
-              14
+              15.35
             ]
           ],
           "color": "#c7c3bb",
