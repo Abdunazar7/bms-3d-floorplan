@@ -39,13 +39,54 @@ export interface OpeningDef {
   top?: number;
 }
 
+export type RoomShape = 'rect' | 'lshape' | 'bevel';
+
 export interface RoomDef {
   /** Optional label, drawn as floating text at the room centroid. */
   name?: string;
-  /** Polygon outline in meters (auto-closed). */
+  /** Polygon outline in meters (auto-closed). Derived from shape when present. */
   polygon: Vec2[];
   /** Floor material color. */
   color?: string;
+
+  // --- Shape-room (Designer Mode) fields. When `shape` is set the builder
+  //     derives the polygon + perimeter walls from these, so rooms can be
+  //     moved/rotated/resized as a unit. Plain polygon rooms still work. ---
+  /** Stable id for selection / parent-child / gizmo. */
+  id?: string;
+  /** Parametric shape; when set, polygon/walls are generated. */
+  shape?: RoomShape;
+  /** Center position on the floor plane (meters). */
+  x?: number;
+  z?: number;
+  /** Footprint size (meters). */
+  width?: number;
+  depth?: number;
+  /** Z-axis rotation in degrees. */
+  rotation?: number;
+  /** Wall height for this room (overrides floor default). */
+  height?: number;
+  /** Wall thickness for generated walls. */
+  thickness?: number;
+  /** Wall color for generated walls. */
+  wallColor?: string;
+  /** Openings on this room's perimeter (shape rooms own their openings). */
+  openings?: RoomOpening[];
+  /** Parent room id (re-parenting / nesting). */
+  parentId?: string;
+}
+
+/** An opening on a shape-room's perimeter, addressed by edge + distance. */
+export interface RoomOpening {
+  id?: string;
+  kind: OpeningKind;
+  /** Which perimeter edge (0-based, following the polygon order). */
+  edge: number;
+  /** Distance along that edge from its start, to the opening start (meters). */
+  position: number;
+  width: number;
+  sill?: number;
+  top?: number;
 }
 
 export interface FurnitureDef {
@@ -93,6 +134,8 @@ export interface BindingDef {
 export interface FloorDef {
   /** Display name shown in the floor switcher. */
   name: string;
+  /** Stable id (Designer scope / breadcrumb). */
+  id?: string;
   /** Vertical offset of this floor in meters (e.g. 0, 3, 6 for stories). */
   elevation?: number;
   /** Default wall height for walls on this floor. */
@@ -103,11 +146,22 @@ export interface FloorDef {
   bindings?: BindingDef[];
 }
 
+/** A building groups floors. Optional — a plan with top-level `floors` is
+ *  treated as a single implicit building (back-compat). */
+export interface BuildingDef {
+  id?: string;
+  name: string;
+  floors: FloorDef[];
+}
+
 export interface FloorPlan {
   name?: string;
   /** Default wall height when not set per-floor or per-wall. */
   wallHeight?: number;
+  /** Legacy / single-building: floors live here. */
   floors: FloorDef[];
+  /** Designer Mode: multiple buildings (each with its own floors). */
+  buildings?: BuildingDef[];
 }
 
 /** A named project entry in a multi-building card config. */

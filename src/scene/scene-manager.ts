@@ -47,6 +47,8 @@ export class SceneManager {
   // -- Editor support --
   /** Editor preview meshes (wall ghosts, point dots) live here. */
   readonly previewGroup = new THREE.Group();
+  /** Gizmo handle meshes (Position Helper) live here. */
+  readonly gizmoGroup = new THREE.Group();
   private editing = false;
   private gridHelper?: THREE.GridHelper;
   private selectionHelper?: THREE.BoxHelper;
@@ -78,6 +80,7 @@ export class SceneManager {
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(background);
     this.scene.add(this.previewGroup);
+    this.scene.add(this.gizmoGroup);
 
     this.camera = new THREE.PerspectiveCamera(55, 1, 0.1, 1000);
     this.camera.position.set(8, 8, 8);
@@ -385,6 +388,37 @@ export class SceneManager {
   /** Raycast for a room floor mesh (returns its room array-index). */
   pickRoom(e: PointerEvent): { index: number; object: THREE.Object3D } | null {
     return this.pickByUserData(e, 'roomIndex');
+  }
+
+  /** Raycast the gizmo handles; returns the handle id (userData.gizmoHandle). */
+  pickGizmo(e: PointerEvent): string | null {
+    if (!this.gizmoGroup.children.length) return null;
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    this.pointer.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+    this.pointer.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+    this.raycaster.setFromCamera(this.pointer, this.camera);
+    const hits = this.raycaster.intersectObjects(this.gizmoGroup.children, true);
+    for (const h of hits) {
+      let cur: THREE.Object3D | null = h.object;
+      while (cur) {
+        const g = cur.userData?.gizmoHandle as string | undefined;
+        if (g) return g;
+        cur = cur.parent;
+      }
+    }
+    return null;
+  }
+
+  clearGizmo(): void {
+    for (const child of [...this.gizmoGroup.children]) {
+      const mesh = child as THREE.Mesh;
+      if (mesh.geometry) mesh.geometry.dispose();
+      if (mesh.material) {
+        const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+        mats.forEach((m) => m.dispose());
+      }
+    }
+    this.gizmoGroup.clear();
   }
 
   private pickByUserData(

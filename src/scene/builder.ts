@@ -8,9 +8,10 @@
 // ---------------------------------------------------------------------------
 
 import * as THREE from 'three';
-import type { FloorDef, WallDef, RoomDef } from '../types';
+import type { FloorDef, WallDef, RoomDef, Vec2 } from '../types';
 import { resolveFurniture } from '../furniture/loader';
 import { TextLabel } from './labels';
+import { isShapeRoom, roomPolygon, roomWalls } from './room-shapes';
 
 const DEFAULT_WALL_HEIGHT = 2.6;
 const DEFAULT_THICKNESS = 0.12;
@@ -136,10 +137,11 @@ function buildFloor(
   group: THREE.Group,
   room: RoomDef,
   index: number,
+  polygon: Vec2[],
 ): { centroid: THREE.Vector2; mesh: THREE.Mesh } | null {
-  if (!room.polygon || room.polygon.length < 3) return null;
+  if (!polygon || polygon.length < 3) return null;
   const shape = new THREE.Shape();
-  room.polygon.forEach((p, i) => {
+  polygon.forEach((p, i) => {
     if (i === 0) shape.moveTo(p[0], p[1]);
     else shape.lineTo(p[0], p[1]);
   });
@@ -163,12 +165,12 @@ function buildFloor(
 
   // centroid for label
   let cx = 0, cz = 0;
-  for (const p of room.polygon) {
+  for (const p of polygon) {
     cx += p[0];
     cz += p[1];
   }
   return {
-    centroid: new THREE.Vector2(cx / room.polygon.length, cz / room.polygon.length),
+    centroid: new THREE.Vector2(cx / polygon.length, cz / polygon.length),
     mesh,
   };
 }
@@ -182,7 +184,8 @@ export function buildFloorGroup(floor: FloorDef, planWallHeight?: number): Built
   const roomById = new Map<number, THREE.Object3D>();
 
   (floor.rooms ?? []).forEach((room, i) => {
-    const built = buildFloor(group, room, i);
+    const poly = isShapeRoom(room) ? roomPolygon(room) : room.polygon;
+    const built = buildFloor(group, room, i, poly);
     if (built) {
       roomById.set(i, built.mesh);
       if (room.name) {
@@ -191,6 +194,19 @@ export function buildFloorGroup(floor: FloorDef, planWallHeight?: number): Built
         label.setPosition(built.centroid.x, 0.05, built.centroid.y);
         labels.push(label);
         group.add(label.sprite);
+      }
+    }
+    // Shape rooms also generate their perimeter walls. They're owned by the
+    // room (tagged roomIndex, not wallIndex) so clicking a wall selects the
+    // ROOM, not an individual wall segment.
+    if (isShapeRoom(room)) {
+      const th = room.thickness ?? DEFAULT_THICKNESS;
+      for (const w of roomWalls(room, room.height ?? defaultHeight, th)) {
+        const wg = buildWall(group, w, room.height ?? defaultHeight, -1);
+        if (wg) {
+          delete wg.userData.wallIndex;
+          wg.userData.roomIndex = i;
+        }
       }
     }
   });

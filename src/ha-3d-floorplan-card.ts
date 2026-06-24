@@ -9,6 +9,8 @@ import type {
   FloorPlan,
   HomeAssistant,
   ProjectRef,
+  RoomDef,
+  RoomShape,
 } from './types';
 import { SceneManager, ClickResult } from './scene/scene-manager';
 import { clickToService } from './scene/bindings';
@@ -51,6 +53,7 @@ export class Ha3dFloorplanCard extends LitElement {
   @state() private editSelectedKind: 'furniture' | 'wall' | 'room' | null = null;
   @state() private editSelectedColor: string | null = null;
   @state() private editSelectedWallLength: number | null = null;
+  @state() private editRoom: RoomDef | null = null;
   @state() private projectList: ProjectInfo[] = [];
   @state() private currentProjectId: string | null = null;
   /** Id of the project open in the editor this session (null = unsaved new). */
@@ -304,6 +307,7 @@ export class Ha3dFloorplanCard extends LitElement {
       this.editSelectedKind = ed.selectedKind;
       this.editSelectedColor = ed.selectedColor;
       this.editSelectedWallLength = ed.selectedWallLength;
+      this.editRoom = ed.selectedRoomData;
       this.editFloorIndex = ed.floorIndex;
       this.editPlanName = ed.plan.name ?? '';
       this.requestUpdate();
@@ -465,6 +469,21 @@ export class Ha3dFloorplanCard extends LitElement {
     this.editor?.addFloor();
   }
 
+  private onAddRoomShape(shape: RoomShape): void {
+    this.editor?.addRoomShape(shape);
+  }
+
+  private onSetRoomField(
+    field: 'name' | 'width' | 'depth' | 'height' | 'rotation',
+    e: Event,
+  ): void {
+    this.editor?.setRoomField(field, (e.target as HTMLInputElement).value);
+  }
+
+  private trackShift = (e: KeyboardEvent) => {
+    if (this.editor) this.editor.shiftHeld = e.shiftKey;
+  };
+
   private onDeleteFloor(): void {
     if (!window.confirm('Delete this floor and everything on it?')) return;
     this.editor?.deleteFloor();
@@ -556,11 +575,15 @@ export class Ha3dFloorplanCard extends LitElement {
   public override connectedCallback(): void {
     super.connectedCallback();
     this.sceneManager?.start();
+    window.addEventListener('keydown', this.trackShift);
+    window.addEventListener('keyup', this.trackShift);
   }
 
   public override disconnectedCallback(): void {
     super.disconnectedCallback();
     this.sceneManager?.stop();
+    window.removeEventListener('keydown', this.trackShift);
+    window.removeEventListener('keyup', this.trackShift);
   }
 
   private renderPaletteCell(model: string, label: string) {
@@ -600,6 +623,14 @@ export class Ha3dFloorplanCard extends LitElement {
             @click=${() => this.onEditTool('select')}>☝ Select</button>
           <button class="btn ${tool === 'orbit' ? 'active' : ''}" title="Move camera"
             @click=${() => this.onEditTool('orbit')}>✋ View</button>
+        </div>
+
+        <div class="panel-group">Building Parts — drop a room</div>
+        <div class="toolrow">
+          <button class="btn" title="Rectangle room" @click=${() => this.onAddRoomShape('rect')}>▭ Rect</button>
+          <button class="btn" title="L-shaped room" @click=${() => this.onAddRoomShape('lshape')}>L L-shape</button>
+          <button class="btn" title="Bevelled room" @click=${() => this.onAddRoomShape('bevel')}>⬡ Bevel</button>
+          <span class="hint">then drag / rotate / resize it</span>
         </div>
 
         ${(() => {
@@ -692,6 +723,34 @@ export class Ha3dFloorplanCard extends LitElement {
                   />
                   <span class="hint">or drag the wall's end point</span>
                 </div>`
+              : nothing}
+            ${kind === 'room' && this.editRoom?.shape
+              ? html`<div class="toolrow">
+                    <input class="name-input" type="text" placeholder="Room name"
+                      .value=${this.editRoom.name ?? ''}
+                      @change=${(e: Event) => this.onSetRoomField('name', e)} />
+                  </div>
+                  <div class="toolrow">
+                    <span class="hint">W</span>
+                    <input class="num-input" type="number" min="0.5" step="0.1"
+                      .value=${(this.editRoom.width ?? 0).toFixed(1)}
+                      @change=${(e: Event) => this.onSetRoomField('width', e)} />
+                    <span class="hint">D</span>
+                    <input class="num-input" type="number" min="0.5" step="0.1"
+                      .value=${(this.editRoom.depth ?? 0).toFixed(1)}
+                      @change=${(e: Event) => this.onSetRoomField('depth', e)} />
+                  </div>
+                  <div class="toolrow">
+                    <span class="hint">Height</span>
+                    <input class="num-input" type="number" min="1" step="0.1"
+                      .value=${(this.editRoom.height ?? 2.6).toFixed(1)}
+                      @change=${(e: Event) => this.onSetRoomField('height', e)} />
+                    <span class="hint">Rot°</span>
+                    <input class="num-input" type="number" step="15"
+                      .value=${Math.round(this.editRoom.rotation ?? 0).toString()}
+                      @change=${(e: Event) => this.onSetRoomField('rotation', e)} />
+                  </div>
+                  <span class="hint">drag body=move · ring=rotate · corners=resize · Shift=no snap</span>`
               : nothing}
             ${isFurniture && this.hass
               ? (() => {
@@ -1009,7 +1068,8 @@ export class Ha3dFloorplanCard extends LitElement {
       backdrop-filter: blur(6px);
       max-width: 340px;
     }
-    .palette-group {
+    .palette-group,
+    .panel-group {
       font-size: 12px;
       font-weight: 600;
       color: #9ab;

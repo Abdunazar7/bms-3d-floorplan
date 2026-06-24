@@ -11,10 +11,11 @@
 // ---------------------------------------------------------------------------
 
 import * as THREE from 'three';
-import type { FloorPlan, FloorDef, WallDef, Vec2 } from '../types';
+import type { FloorPlan, FloorDef, WallDef, Vec2, RoomDef, RoomShape } from '../types';
 import type { SceneManager } from '../scene/scene-manager';
 import { defaultY } from '../furniture/library';
 import { TextLabel } from '../scene/labels';
+import { isShapeRoom, roomPolygon } from '../scene/room-shapes';
 
 export type EditTool = 'orbit' | 'wall' | 'furniture' | 'select' | 'door' | 'window';
 
@@ -29,6 +30,12 @@ const ALIGN_TOL = 0.25; // align the first point's x/z with an existing endpoint
 
 const snap = (v: number) => Math.round(v / SNAP) * SNAP;
 const sameVertex = (a: Vec2, b: Vec2) => Math.hypot(a[0] - b[0], a[1] - b[1]) < 1e-4;
+const rotateVec = (x: number, z: number, deg: number): Vec2 => {
+  const r = (deg * Math.PI) / 180;
+  const c = Math.cos(r);
+  const s = Math.sin(r);
+  return [x * c - z * s, x * s + z * c];
+};
 
 interface SnapResult {
   pt: Vec2;
@@ -65,8 +72,13 @@ export class EditorController {
   snapEnabled = true;
   private snapInfo: SnapResult | null = null;
   private measureLabel?: TextLabel;
-  private dragMode: 'furniture' | 'endpoint' | null = null;
+  private dragMode: 'furniture' | 'endpoint' | 'gizmo' | null = null;
   private dragVertex: Vec2 | null = null;
+  private gizmoHandle: string | null = null;
+  private gizmoGrab: Vec2 = [0, 0];
+  private gizmoRoom0 = { x: 0, z: 0, width: 3, depth: 3, rotation: 0 };
+  /** Hold Shift to disable auto-snap while moving a room. */
+  shiftHeld = false;
 
   constructor(sm: SceneManager, plan: FloorPlan) {
     this.sm = sm;
@@ -157,12 +169,25 @@ export class EditorController {
 
   private dragStart(e: PointerEvent): boolean {
     if (this.tool !== 'select') return false;
+    // 1) Position Helper handle (when a shape room is selected).
+    if (this.selectedKind === 'room') {
+      const handle = this.sm.pickGizmo(e);
+      if (handle) return this.beginGizmo(handle, e);
+    }
+    // 2) Furniture grab.
     const f = this.sm.pickFurniture(e);
     if (f) {
       this.selectFurniture(f.id);
       this.dragMode = 'furniture';
       return true;
     }
+    // 3) Shape-room body → select + move.
+    const r = this.sm.pickRoom(e);
+    if (r && isShapeRoom(this.floor().rooms?.[r.index] ?? ({} as RoomDef))) {
+      this.selectRoom(r.index);
+      return this.beginGizmo('move', e);
+    }
+    // 4) Wall endpoint reshape.
     const gp = this.sm.groundIntersect(e);
     if (gp) {
       const v = this.nearestEndpoint(gp.x, gp.z, 0.45);
@@ -180,7 +205,9 @@ export class EditorController {
   }
 
   private dragMoveTo(p: THREE.Vector3): void {
-    if (this.dragMode === 'furniture' && this.selectedId) {
+    if (this.dragMode === 'gizmo') {
+      this.gizmoMoveTo(p);
+    } else if (this.dragMode === 'furniture' && this.selectedId) {
       const obj = this.sm.getFurnitureObject(this.selectedId);
       if (obj) {
         obj.position.x = snap(p.x);
@@ -205,6 +232,7 @@ export class EditorController {
     }
     this.dragMode = null;
     this.dragVertex = null;
+    this.gizmoHandle = null;
     this.onChange?.();
   }
 
@@ -346,6 +374,7 @@ export class EditorController {
     this.selectedId = null;
     this.selectedWall = -1;
     this.sm.setSelection(this.sm.getRoomObject(index) ?? null);
+    this.buildGizmo();
     this.onChange?.();
   }
 
@@ -355,6 +384,7 @@ export class EditorController {
     this.selectedWall = -1;
     this.selectedRoom = -1;
     this.sm.setSelection(null);
+    this.sm.clearGizmo();
     this.onChange?.();
   }
 
@@ -364,8 +394,215 @@ export class EditorController {
       this.sm.setSelection(this.sm.getFurnitureObject(this.selectedId) ?? null);
     else if (this.selectedKind === 'wall' && this.selectedWall >= 0)
       this.sm.setSelection(this.sm.getWallObject(this.selectedWall) ?? null);
-    else if (this.selectedKind === 'room' && this.selectedRoom >= 0)
+    else if (this.selectedKind === 'room' && this.selectedRoom >= 0) {
       this.sm.setSelection(this.sm.getRoomObject(this.selectedRoom) ?? null);
+      this.buildGizmo();
+    }
+  }
+
+  // -- Building Mode: shape rooms + Position Helper gizmo ----------------------
+
+  private currentRoom(): RoomDef | null {
+    if (this.selectedKind !== 'room') return null;
+    return this.floor().rooms?.[this.selectedRoom] ?? null;
+  }
+
+  get selectedRoomData(): RoomDef | null {
+    return this.currentRoom();
+  }
+
+  /** Drop a parametric room shape at the camera target and select it. */
+  addRoomShape(shape: RoomShape): void {
+    const fl = this.floor();
+    if (!fl.rooms) fl.rooms = [];
+    const c = this.sm.controls.target;
+    const room: RoomDef = {
+      id: `r${fl.rooms.length}_${Math.floor(performance.now() % 100000)}`,
+      name: `Room ${fl.rooms.length + 1}`,
+      shape,
+      x: snap(c.x),
+      z: snap(c.z),
+      width: 4,
+      depth: 3,
+      rotation: 0,
+      polygon: [],
+    };
+    fl.rooms.push(room);
+    this.rebuild();
+    this.selectRoom(fl.rooms.length - 1);
+    this.setTool('select');
+    this.onChange?.();
+  }
+
+  setRoomField(field: 'name' | 'width' | 'depth' | 'height' | 'rotation', value: number | string): void {
+    const room = this.currentRoom();
+    if (!room) return;
+    if (field === 'name') room.name = String(value);
+    else {
+      const v = Number(value);
+      if (Number.isNaN(v)) return;
+      if (field === 'width') room.width = Math.max(0.5, v);
+      else if (field === 'depth') room.depth = Math.max(0.5, v);
+      else if (field === 'height') room.height = Math.max(1, v);
+      else if (field === 'rotation') room.rotation = v;
+    }
+    this.rebuild();
+    this.reselect();
+    this.onChange?.();
+  }
+
+  private buildGizmo(): void {
+    this.sm.clearGizmo();
+    const room = this.currentRoom();
+    if (!room || !isShapeRoom(room)) return;
+    const g = this.sm.gizmoGroup;
+    const y = this.elevation() + 0.08;
+    const cx = room.x ?? 0;
+    const cz = room.z ?? 0;
+    const rot = room.rotation ?? 0;
+
+    const handle = (
+      geo: THREE.BufferGeometry,
+      color: number,
+      pos: Vec2,
+      id: string,
+      flat = true,
+    ) => {
+      const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color, depthTest: false }));
+      if (flat) m.rotation.x = -Math.PI / 2;
+      m.position.set(pos[0], y, pos[1]);
+      m.renderOrder = 1000;
+      m.userData.gizmoHandle = id;
+      g.add(m);
+    };
+
+    // Move (center disc).
+    handle(new THREE.CircleGeometry(0.28, 24), 0x4aa3ff, [cx, cz], 'move');
+    // Rotate (ring) offset beyond one edge.
+    const off = rotateVec(0, -((room.depth ?? 3) / 2 + 0.7), rot);
+    handle(new THREE.TorusGeometry(0.2, 0.05, 8, 20), 0x4fd06a, [cx + off[0], cz + off[1]], 'rotate');
+    // Corner resize handles (rect only).
+    if (room.shape === 'rect') {
+      roomPolygon(room).forEach((c, i) => {
+        const s = new THREE.Mesh(
+          new THREE.SphereGeometry(0.16, 12, 12),
+          new THREE.MeshBasicMaterial({ color: 0xffcc44, depthTest: false }),
+        );
+        s.position.set(c[0], y, c[1]);
+        s.renderOrder = 1000;
+        s.userData.gizmoHandle = `corner${i}`;
+        g.add(s);
+      });
+    }
+  }
+
+  private beginGizmo(handle: string, e: PointerEvent): boolean {
+    const room = this.currentRoom();
+    const gp = this.sm.groundIntersect(e);
+    if (!room || !gp) return false;
+    this.dragMode = 'gizmo';
+    this.gizmoHandle = handle;
+    this.gizmoGrab = [gp.x, gp.z];
+    this.gizmoRoom0 = {
+      x: room.x ?? 0,
+      z: room.z ?? 0,
+      width: room.width ?? 3,
+      depth: room.depth ?? 3,
+      rotation: room.rotation ?? 0,
+    };
+    return true;
+  }
+
+  private gizmoMoveTo(p: THREE.Vector3): void {
+    const room = this.currentRoom();
+    if (!room || !this.gizmoHandle) return;
+    const g0 = this.gizmoRoom0;
+    const h = this.gizmoHandle;
+    if (h === 'move') {
+      room.x = snap(g0.x + (p.x - this.gizmoGrab[0]));
+      room.z = snap(g0.z + (p.z - this.gizmoGrab[1]));
+      if (!this.shiftHeld) this.snapRoom(room);
+    } else if (h === 'rotate') {
+      let deg = (Math.atan2(p.z - (room.z ?? 0), p.x - (room.x ?? 0)) * 180) / Math.PI + 90;
+      if (!this.shiftHeld) deg = Math.round(deg / 15) * 15;
+      room.rotation = deg;
+    } else if (h.startsWith('corner') && room.shape === 'rect') {
+      const i = parseInt(h.slice(6), 10);
+      const signs: Vec2[] = [
+        [-1, -1],
+        [1, -1],
+        [1, 1],
+        [-1, 1],
+      ];
+      const [sx, sz] = signs[i] ?? [1, 1];
+      // Fixed opposite corner (world), in the room's start rotation.
+      const oppLocal: Vec2 = [(-sx * g0.width) / 2, (-sz * g0.depth) / 2];
+      const oppWorld = rotateVec(oppLocal[0], oppLocal[1], g0.rotation);
+      const oppX = g0.x + oppWorld[0];
+      const oppZ = g0.z + oppWorld[1];
+      // Pointer in the room-local frame (unrotate around the FIXED opposite corner... use center0).
+      const rel = rotateVec(p.x - g0.x, p.z - g0.z, -g0.rotation);
+      const newW = Math.max(0.5, snap(Math.abs(rel[0] - (-sx * g0.width) / 2)));
+      const newD = Math.max(0.5, snap(Math.abs(rel[1] - (-sz * g0.depth) / 2)));
+      // New center = midpoint of fixed opposite corner and the dragged corner, world.
+      const cornerLocalNew: Vec2 = [(sx * newW) / 2, (sz * newD) / 2];
+      const cornerWorldFromOpp = rotateVec(sx * newW, sz * newD, g0.rotation);
+      room.width = newW;
+      room.depth = newD;
+      room.x = snap(oppX + cornerWorldFromOpp[0] / 2);
+      room.z = snap(oppZ + cornerWorldFromOpp[1] / 2);
+      void cornerLocalNew;
+    }
+    this.rebuild();
+    this.reselect();
+    this.onChange?.();
+  }
+
+  /** Snap an axis-aligned room's edges to nearby axis-aligned rooms. */
+  private snapRoom(room: RoomDef): void {
+    if (Math.abs(((room.rotation ?? 0) % 360)) > 1) return;
+    const tol = 0.35;
+    const w = room.width ?? 3;
+    const d = room.depth ?? 3;
+    let L = (room.x ?? 0) - w / 2;
+    let T = (room.z ?? 0) - d / 2;
+    const others = (this.floor().rooms ?? []).filter(
+      (r) => r !== room && isShapeRoom(r) && Math.abs((r.rotation ?? 0) % 360) <= 1,
+    );
+    let bestDX = 0;
+    let bestDXd = tol;
+    let bestDZ = 0;
+    let bestDZd = tol;
+    for (const o of others) {
+      const ow = o.width ?? 3;
+      const od = o.depth ?? 3;
+      const oL = (o.x ?? 0) - ow / 2;
+      const oR = (o.x ?? 0) + ow / 2;
+      const oT = (o.z ?? 0) - od / 2;
+      const oB = (o.z ?? 0) + od / 2;
+      for (const myX of [L, L + w]) {
+        for (const oX of [oL, oR]) {
+          const diff = oX - myX;
+          if (Math.abs(diff) < bestDXd) {
+            bestDXd = Math.abs(diff);
+            bestDX = diff;
+          }
+        }
+      }
+      for (const myZ of [T, T + d]) {
+        for (const oZ of [oT, oB]) {
+          const diff = oZ - myZ;
+          if (Math.abs(diff) < bestDZd) {
+            bestDZd = Math.abs(diff);
+            bestDZ = diff;
+          }
+        }
+      }
+    }
+    room.x = (room.x ?? 0) + bestDX;
+    room.z = (room.z ?? 0) + bestDZ;
+    void L;
+    void T;
   }
 
   rotateSelected(): void {
