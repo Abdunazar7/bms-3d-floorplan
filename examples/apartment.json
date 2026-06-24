@@ -1,0 +1,355 @@
+{
+  "name": "Apartment",
+  "wallHeight": 2.6,
+  "floors": [
+    {
+      "name": "Floor 1",
+      "elevation": 0,
+      "wallHeight": 2.6,
+      "walls": [
+        {
+          "start": [
+            0,
+            0
+          ],
+          "end": [
+            7,
+            0
+          ],
+          "openings": [
+            {
+              "kind": "window",
+              "position": 4.6,
+              "width": 1.4
+            }
+          ]
+        },
+        {
+          "start": [
+            7,
+            0
+          ],
+          "end": [
+            7,
+            10
+          ]
+        },
+        {
+          "start": [
+            7,
+            10
+          ],
+          "end": [
+            0,
+            10
+          ],
+          "openings": [
+            {
+              "kind": "window",
+              "position": 1.4,
+              "width": 3
+            },
+            {
+              "kind": "door",
+              "position": 5,
+              "width": 1
+            }
+          ]
+        },
+        {
+          "start": [
+            0,
+            10
+          ],
+          "end": [
+            0,
+            0
+          ],
+          "openings": [
+            {
+              "kind": "window",
+              "position": 7.2,
+              "width": 1.6
+            }
+          ]
+        }
+      ],
+      "rooms": [
+        {
+          "name": "Apartment",
+          "polygon": [
+            [
+              0,
+              0
+            ],
+            [
+              7,
+              0
+            ],
+            [
+              7,
+              10
+            ],
+            [
+              0,
+              10
+            ]
+          ],
+          "color": "#c9c9cc"
+        }
+      ],
+      "furniture": [
+        {
+          "model": "ac_unit",
+          "position": [
+            5.4,
+            2.1,
+            0.25
+          ],
+          "rotation": 180,
+          "id": "ac_unit_54_3"
+        },
+        {
+          "model": "intercom",
+          "position": [
+            6.82,
+            1.5,
+            3
+          ],
+          "rotation": -90,
+          "id": "intercom_68_30"
+        },
+        {
+          "model": "ceiling_light",
+          "position": [
+            2.4,
+            2.5500000000000003,
+            3
+          ],
+          "rotation": 0,
+          "id": "ceiling_light_24_30"
+        },
+        {
+          "model": "ceiling_light",
+          "position": [
+            5.2,
+            2.5500000000000003,
+            6
+          ],
+          "rotation": 0,
+          "id": "ceiling_light_52_60"
+        },
+        {
+          "model": "wardrobe",
+          "position": [
+            3.4,
+            0,
+            4.7
+          ],
+          "rotation": 0,
+          "color": "#f0f0f0",
+          "id": "wardrobe_34_47"
+        },
+        {
+          "model": "bookshelf",
+          "position": [
+            4.7,
+            0,
+            4
+          ],
+          "rotation": 0,
+          "color": "#f0f0f0",
+          "id": "bookshelf_47_40"
+        },
+        {
+          "model": "wardrobe",
+          "position": [
+            4.7,
+            0,
+            5.5
+          ],
+          "rotation": 0,
+          "color": "#f0f0f0",
+          "id": "wardrobe_47_55"
+        },
+        {
+          "model": "bookshelf",
+          "position": [
+            3.4,
+            0,
+            6
+          ],
+          "rotation": 90,
+          "color": "#f0f0f0",
+          "id": "bookshelf_34_60"
+        },
+        {
+          "model": "wardrobe",
+          "position": [
+            3.9,
+            0,
+            7.5
+          ],
+          "rotation": 0,
+          "color": "#2b2f36",
+          "id": "wardrobe_39_75"
+        },
+        {
+          "model": "bathtub",
+          "position": [
+            1.7,
+            0,
+            5.3
+          ],
+          "rotation": 0,
+          "color": "#eef3f6",
+          "id": "bathtub_17_53"
+        },
+        {
+          "model": "floor_lamp",
+          "position": [
+            2.6,
+            0,
+            4.9
+          ],
+          "rotation": 0,
+          "id": "floor_lamp_26_49"
+        },
+        {
+          "model": "toilet",
+          "position": [
+            6.4,
+            0,
+            5.4
+          ],
+          "rotation": -90,
+          "id": "toilet_64_54"
+        },
+        {
+          "model": "sink",
+          "position": [
+            5.4,
+            0,
+            9
+          ],
+          "rotation": 0,
+          "color": "#2b2f36",
+          "id": "sink_54_90"
+        },
+        {
+          "model": "fridge",
+          "position": [
+            6.4,
+            0,
+            6.1
+          ],
+          "rotation": -90,
+          "id": "fridge_64_61"
+        },
+        {
+          "model": "kitchen_counter",
+          "position": [
+            6.35,
+            0,
+            8
+          ],
+          "rotation": 90,
+          "color": "#f2f2f2",
+          "id": "kitchen_counter_64_80"
+        },
+        {
+          "model": "sink",
+          "position": [
+            6.4,
+            0,
+            7.1
+          ],
+          "rotation": -90,
+          "id": "sink_64_71"
+        },
+        {
+          "model": "stove",
+          "position": [
+            6.4,
+            0,
+            9.2
+          ],
+          "rotation": -90,
+          "id": "stove_64_92"
+        },
+        {
+          "model": "dining_table",
+          "position": [
+            1.8,
+            0,
+            8.3
+          ],
+          "rotation": 90,
+          "color": "#b07c43",
+          "id": "dining_table_18_83"
+        },
+        {
+          "model": "chair",
+          "position": [
+            1,
+            0,
+            7.7
+          ],
+          "rotation": 90,
+          "id": "chair_10_77"
+        },
+        {
+          "model": "chair",
+          "position": [
+            1,
+            0,
+            8.3
+          ],
+          "rotation": 90,
+          "id": "chair_10_83"
+        },
+        {
+          "model": "chair",
+          "position": [
+            1,
+            0,
+            8.9
+          ],
+          "rotation": 90,
+          "id": "chair_10_89"
+        },
+        {
+          "model": "chair",
+          "position": [
+            2.6,
+            0,
+            7.7
+          ],
+          "rotation": -90,
+          "id": "chair_26_77"
+        },
+        {
+          "model": "chair",
+          "position": [
+            2.6,
+            0,
+            8.3
+          ],
+          "rotation": -90,
+          "id": "chair_26_83"
+        },
+        {
+          "model": "chair",
+          "position": [
+            2.6,
+            0,
+            8.9
+          ],
+          "rotation": -90,
+          "id": "chair_26_89"
+        }
+      ],
+      "bindings": []
+    }
+  ]
+}

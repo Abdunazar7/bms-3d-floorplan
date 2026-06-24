@@ -54,6 +54,8 @@ export class Ha3dFloorplanCard extends LitElement {
   @state() private editSelectedColor: string | null = null;
   @state() private editSelectedWallLength: number | null = null;
   @state() private editRoom: RoomDef | null = null;
+  @state() private importOpen = false;
+  @state() private importText = '';
   @state() private projectList: ProjectInfo[] = [];
   @state() private currentProjectId: string | null = null;
   /** Id of the project open in the editor this session (null = unsaved new). */
@@ -456,6 +458,42 @@ export class Ha3dFloorplanCard extends LitElement {
     this.editor?.setColor(color);
   }
 
+  private onOpenImport(): void {
+    this.importText = '';
+    this.importOpen = true;
+  }
+
+  private onExportPlan(): void {
+    if (this.editor) this.importText = JSON.stringify(this.editor.plan, null, 2);
+    else if (this.currentPlan) this.importText = JSON.stringify(this.currentPlan, null, 2);
+    this.importOpen = true;
+  }
+
+  private onImportText(e: Event): void {
+    this.importText = (e.target as HTMLTextAreaElement).value;
+  }
+
+  private async onImportLoad(): Promise<void> {
+    let plan: FloorPlan;
+    try {
+      plan = JSON.parse(this.importText) as FloorPlan;
+      if (!plan || !Array.isArray(plan.floors) || plan.floors.length === 0) {
+        throw new Error('Plan must have a non-empty "floors" array');
+      }
+    } catch (err: any) {
+      this.showToast(`Import failed: ${err?.message ?? 'invalid JSON'}`);
+      return;
+    }
+    if (!this.editor) this.enterEdit();
+    if (!this.editor) return;
+    this.editor.loadPlan(plan);
+    this.editingProjectId = null; // imported = a new project until saved
+    this.editPlanName = plan.name ?? 'Imported';
+    this.importOpen = false;
+    await this.onSavePlan();
+    this.showToast(`Imported "${plan.name ?? 'plan'}" and saved`);
+  }
+
   private onNudgeHeight(delta: number): void {
     this.editor?.nudgeHeight(delta);
   }
@@ -829,6 +867,10 @@ export class Ha3dFloorplanCard extends LitElement {
             <button class="btn" title="Create a new project (keeps the others)" @click=${this.onNewPlan}>✚ New</button>
             <button class="btn primary" title="Save this project" @click=${this.onSavePlan}>💾 Save</button>
           </div>
+          <div class="toolrow">
+            <button class="btn" title="Paste a plan JSON to build it" @click=${this.onOpenImport}>📥 Import</button>
+            <button class="btn" title="Copy this plan as JSON" @click=${this.onExportPlan}>📤 Export</button>
+          </div>
         </div>
       </div>
     `;
@@ -863,6 +905,25 @@ export class Ha3dFloorplanCard extends LitElement {
         </div>
 
         ${this.editing ? this.renderEditor() : nothing}
+
+        ${this.importOpen
+          ? html`<div class="import-modal">
+              <div class="import-box">
+                <div class="import-title">Import / Export plan JSON</div>
+                <textarea
+                  class="import-text"
+                  spellcheck="false"
+                  placeholder="Paste a floor-plan JSON here, then press Load…"
+                  .value=${this.importText}
+                  @input=${this.onImportText}
+                ></textarea>
+                <div class="toolrow">
+                  <button class="btn primary" @click=${this.onImportLoad}>📥 Load</button>
+                  <button class="btn" @click=${() => (this.importOpen = false)}>Cancel</button>
+                </div>
+              </div>
+            </div>`
+          : nothing}
 
         ${this.toast ? html`<div class="toast">${this.toast}</div>` : nothing}
 
@@ -1026,6 +1087,44 @@ export class Ha3dFloorplanCard extends LitElement {
       border: 1px solid rgba(255, 255, 255, 0.16);
       border-radius: 8px;
       padding: 6px 8px;
+    }
+    .import-modal {
+      position: absolute;
+      inset: 0;
+      z-index: 6;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(0, 0, 0, 0.5);
+    }
+    .import-box {
+      width: min(560px, 92%);
+      max-height: 86%;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      padding: 14px;
+      border-radius: 12px;
+      background: rgba(24, 26, 30, 0.98);
+      border: 1px solid rgba(255, 255, 255, 0.16);
+    }
+    .import-title {
+      font-size: 14px;
+      font-weight: 600;
+      color: #fff;
+    }
+    .import-text {
+      width: 100%;
+      box-sizing: border-box;
+      min-height: 240px;
+      resize: vertical;
+      font-family: ui-monospace, Menlo, Consolas, monospace;
+      font-size: 12px;
+      color: #e6e6e6;
+      background: rgba(15, 17, 20, 0.95);
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      border-radius: 8px;
+      padding: 10px;
     }
     .toolrow {
       display: flex;
