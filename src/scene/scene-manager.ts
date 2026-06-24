@@ -55,6 +55,12 @@ export class SceneManager {
     click?: (p: THREE.Vector3, e: PointerEvent) => void;
     move?: (p: THREE.Vector3, e: PointerEvent) => void;
   };
+  private dragging = false;
+  private onDrag?: {
+    start: (e: PointerEvent) => boolean;
+    move: (p: THREE.Vector3, e: PointerEvent) => void;
+    end: () => void;
+  };
 
   constructor(container: HTMLElement, background = '#1b1d22') {
     this.container = container;
@@ -255,8 +261,29 @@ export class SceneManager {
     el.addEventListener('pointerdown', (e) => {
       this.downPos = { x: e.clientX, y: e.clientY };
       this.downTime = performance.now();
+      // Editing: a single-pointer press may grab a draggable object.
+      if (this.editing && e.isPrimary && this.onDrag && this.onDrag.start(e)) {
+        this.dragging = true;
+        this.controls.enabled = false; // suspend camera while dragging
+        try {
+          el.setPointerCapture(e.pointerId);
+        } catch {
+          /* ignore */
+        }
+      }
     });
     el.addEventListener('pointerup', (e) => {
+      if (this.dragging) {
+        this.dragging = false;
+        this.controls.enabled = true; // mappings (LEFT/ONE) are unchanged
+        this.onDrag?.end();
+        try {
+          el.releasePointerCapture(e.pointerId);
+        } catch {
+          /* ignore */
+        }
+        return;
+      }
       const dx = e.clientX - this.downPos.x;
       const dy = e.clientY - this.downPos.y;
       const moved = Math.hypot(dx, dy);
@@ -271,11 +298,29 @@ export class SceneManager {
       }
     });
     el.addEventListener('pointermove', (e) => {
+      if (this.dragging && this.onDrag) {
+        const p = this.groundIntersect(e);
+        if (p) this.onDrag.move(p, e);
+        return;
+      }
       if (this.editing && this.onGround?.move) {
         const p = this.groundIntersect(e);
         if (p) this.onGround.move(p, e);
       }
     });
+  }
+
+  setDragHandler(h?: {
+    start: (e: PointerEvent) => boolean;
+    move: (p: THREE.Vector3, e: PointerEvent) => void;
+    end: () => void;
+  }): void {
+    this.onDrag = h;
+  }
+
+  /** Keep the selection box aligned after moving an object live (during drag). */
+  refreshSelection(): void {
+    this.selectionHelper?.update();
   }
 
   // -- Editor API -------------------------------------------------------------

@@ -50,6 +50,7 @@ export class Ha3dFloorplanCard extends LitElement {
   @state() private editFloorIndex = 0;
   @state() private editSelectedKind: 'furniture' | 'wall' | 'room' | null = null;
   @state() private editSelectedColor: string | null = null;
+  @state() private editSelectedWallLength: number | null = null;
   @state() private projectList: ProjectInfo[] = [];
   @state() private currentProjectId: string | null = null;
   /** Id of the project open in the editor this session (null = unsaved new). */
@@ -302,6 +303,7 @@ export class Ha3dFloorplanCard extends LitElement {
       this.editSelectedObjModel = ed.selectedObjectModel;
       this.editSelectedKind = ed.selectedKind;
       this.editSelectedColor = ed.selectedColor;
+      this.editSelectedWallLength = ed.selectedWallLength;
       this.editFloorIndex = ed.floorIndex;
       this.editPlanName = ed.plan.name ?? '';
       this.requestUpdate();
@@ -454,6 +456,20 @@ export class Ha3dFloorplanCard extends LitElement {
     this.editor?.nudgeHeight(delta);
   }
 
+  private onSetWallLength(e: Event): void {
+    const v = parseFloat((e.target as HTMLInputElement).value);
+    if (!Number.isNaN(v) && v > 0) this.editor?.setWallLength(v);
+  }
+
+  private onAddFloor(): void {
+    this.editor?.addFloor();
+  }
+
+  private onDeleteFloor(): void {
+    if (!window.confirm('Delete this floor and everything on it?')) return;
+    this.editor?.deleteFloor();
+  }
+
   private pickModel(model: string): void {
     if (!this.editor) return;
     this.editor.selectedModel = model;
@@ -590,18 +606,22 @@ export class Ha3dFloorplanCard extends LitElement {
           // Derive the floor list from the LIVE edit plan (not View-mode state),
           // so it stays correct after New / project switch while editing.
           const efloors = this.editor?.plan.floors ?? [];
-          return efloors.length > 1
-            ? html`<div class="toolrow">
-                <span class="hint">Floor:</span>
-                <select class="select" @change=${this.onSelectEditFloor}>
+          return html`<div class="toolrow">
+            <span class="hint">Floor:</span>
+            ${efloors.length > 1
+              ? html`<select class="select" @change=${this.onSelectEditFloor}>
                   ${efloors.map(
                     (f, i) => html`<option value=${i} ?selected=${i === this.editFloorIndex}>
                       ${f.name || `Floor ${i + 1}`}
                     </option>`,
                   )}
-                </select>
-              </div>`
-            : nothing;
+                </select>`
+              : html`<span class="hint">${efloors[0]?.name || 'Ground'}</span>`}
+            <button class="btn" title="Add a floor above" @click=${this.onAddFloor}>➕ Floor</button>
+            ${efloors.length > 1
+              ? html`<button class="btn" title="Delete this floor" @click=${this.onDeleteFloor}>🗑</button>`
+              : nothing}
+          </div>`;
         })()}
 
         ${tool === 'wall'
@@ -659,6 +679,20 @@ export class Ha3dFloorplanCard extends LitElement {
                 @input=${this.onSetColor}
               />
             </div>
+            ${kind === 'wall'
+              ? html`<div class="toolrow">
+                  <span class="hint">Length (m):</span>
+                  <input
+                    class="num-input"
+                    type="number"
+                    min="0.1"
+                    step="0.1"
+                    .value=${this.editSelectedWallLength != null ? this.editSelectedWallLength.toFixed(2) : ''}
+                    @change=${this.onSetWallLength}
+                  />
+                  <span class="hint">or drag the wall's end point</span>
+                </div>`
+              : nothing}
             ${isFurniture && this.hass
               ? (() => {
                   const domains =
@@ -699,7 +733,7 @@ export class Ha3dFloorplanCard extends LitElement {
           : nothing}
 
         ${tool === 'select' && !kind
-          ? html`<span class="hint">tap a piece, wall, or floor to select · tap floor to move selected furniture</span>`
+          ? html`<span class="hint">tap to select · DRAG furniture to move it · drag a wall end to reshape</span>`
           : nothing}
         ${tool === 'door' || tool === 'window'
           ? html`<span class="hint">tap a wall to add a ${tool}</span>`
@@ -923,6 +957,16 @@ export class Ha3dFloorplanCard extends LitElement {
       border: 1px solid rgba(255, 255, 255, 0.16);
       border-radius: 8px;
       padding: 7px 10px;
+    }
+    .num-input {
+      width: 72px;
+      font: inherit;
+      font-size: 13px;
+      color: #fff;
+      background: rgba(30, 33, 40, 0.82);
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      border-radius: 8px;
+      padding: 6px 8px;
     }
     .toolrow {
       display: flex;

@@ -28,6 +28,7 @@ const LEN_TOL = 0.12; // snap a segment's length to a nearby existing wall lengt
 const ALIGN_TOL = 0.25; // align the first point's x/z with an existing endpoint
 
 const snap = (v: number) => Math.round(v / SNAP) * SNAP;
+const sameVertex = (a: Vec2, b: Vec2) => Math.hypot(a[0] - b[0], a[1] - b[1]) < 1e-4;
 
 interface SnapResult {
   pt: Vec2;
@@ -64,6 +65,8 @@ export class EditorController {
   snapEnabled = true;
   private snapInfo: SnapResult | null = null;
   private measureLabel?: TextLabel;
+  private dragMode: 'furniture' | 'endpoint' | null = null;
+  private dragVertex: Vec2 | null = null;
 
   constructor(sm: SceneManager, plan: FloorPlan) {
     this.sm = sm;
@@ -80,6 +83,11 @@ export class EditorController {
     this.measureLabel = new TextLabel(1.2);
     this.measureLabel.sprite.visible = false;
     this.sm.scene.add(this.measureLabel.sprite);
+    this.sm.setDragHandler({
+      start: (e) => this.dragStart(e),
+      move: (p) => this.dragMoveTo(p),
+      end: () => this.dragEnd(),
+    });
     this.applySceneEditState();
     this.setTool('wall');
   }
@@ -92,6 +100,7 @@ export class EditorController {
       this.measureLabel = undefined;
     }
     this.sm.setGroundHandler(undefined);
+    this.sm.setDragHandler(undefined);
     this.sm.setEditMode(false);
     this.sm.setDrawMode(false);
   }
@@ -110,6 +119,143 @@ export class EditorController {
     this.floorIndex = index;
     this.sm.setActiveFloor(index);
     this.applySceneEditState();
+    this.onChange?.();
+  }
+
+  addFloor(): void {
+    const wh = this.plan.floors[0]?.wallHeight ?? this.plan.wallHeight ?? 2.6;
+    const maxElev = Math.max(0, ...this.plan.floors.map((f) => f.elevation ?? 0));
+    const idx = this.plan.floors.length;
+    this.plan.floors.push({
+      name: `Floor ${idx + 1}`,
+      elevation: maxElev + wh + 0.4,
+      wallHeight: wh,
+      walls: [],
+      rooms: [],
+      furniture: [],
+      bindings: [],
+    });
+    this.sm.loadPlan(this.plan, true); // build the new floor
+    this.setFloor(idx); // switch to it
+    this.onMessage?.(`Added "${this.plan.floors[idx].name}" — draw it`);
+  }
+
+  deleteFloor(): void {
+    if (this.plan.floors.length <= 1) {
+      this.onMessage?.('Cannot delete the only floor');
+      return;
+    }
+    this.plan.floors.splice(this.floorIndex, 1);
+    const ni = Math.min(this.floorIndex, this.plan.floors.length - 1);
+    this.clearSelection();
+    this.floorIndex = ni;
+    this.sm.loadPlan(this.plan, false);
+    this.setFloor(ni);
+  }
+
+  // -- Drag to move (furniture) / reshape (wall endpoints) --------------------
+
+  private dragStart(e: PointerEvent): boolean {
+    if (this.tool !== 'select') return false;
+    const f = this.sm.pickFurniture(e);
+    if (f) {
+      this.selectFurniture(f.id);
+      this.dragMode = 'furniture';
+      return true;
+    }
+    const gp = this.sm.groundIntersect(e);
+    if (gp) {
+      const v = this.nearestEndpoint(gp.x, gp.z, 0.45);
+      if (v) {
+        this.dragMode = 'endpoint';
+        this.dragVertex = v;
+        const wi = (this.floor().walls ?? []).findIndex(
+          (w) => sameVertex(w.start as Vec2, v) || sameVertex(w.end as Vec2, v),
+        );
+        if (wi >= 0) this.selectWall(wi);
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private dragMoveTo(p: THREE.Vector3): void {
+    if (this.dragMode === 'furniture' && this.selectedId) {
+      const obj = this.sm.getFurnitureObject(this.selectedId);
+      if (obj) {
+        obj.position.x = snap(p.x);
+        obj.position.z = snap(p.z);
+        this.sm.refreshSelection();
+      }
+    } else if (this.dragMode === 'endpoint' && this.dragVertex) {
+      const nv: Vec2 = [snap(p.x), snap(p.z)];
+      if (sameVertex(nv, this.dragVertex)) return;
+      this.moveVertex(this.dragVertex, nv);
+      this.dragVertex = nv;
+      this.rebuild();
+      this.reselect();
+    }
+  }
+
+  private dragEnd(): void {
+    if (this.dragMode === 'furniture' && this.selectedId) {
+      const obj = this.sm.getFurnitureObject(this.selectedId);
+      const f = this.floor().furniture?.find((x) => x.id === this.selectedId);
+      if (obj && f) f.position = [obj.position.x, f.position[1], obj.position.z];
+    }
+    this.dragMode = null;
+    this.dragVertex = null;
+    this.onChange?.();
+  }
+
+  private nearestEndpoint(x: number, z: number, tol: number): Vec2 | null {
+    let best: Vec2 | null = null;
+    let bd = tol;
+    for (const w of this.floor().walls ?? []) {
+      for (const pt of [w.start, w.end]) {
+        const d = Math.hypot(x - pt[0], z - pt[1]);
+        if (d < bd) {
+          bd = d;
+          best = [pt[0], pt[1]];
+        }
+      }
+    }
+    return best;
+  }
+
+  /** Move a shared vertex: all walls + room polygon points at `from` go to `to`. */
+  private moveVertex(from: Vec2, to: Vec2): void {
+    for (const w of this.floor().walls ?? []) {
+      if (sameVertex(w.start as Vec2, from)) w.start = [to[0], to[1]];
+      if (sameVertex(w.end as Vec2, from)) w.end = [to[0], to[1]];
+    }
+    for (const r of this.floor().rooms ?? []) {
+      r.polygon = r.polygon.map((pt) =>
+        sameVertex(pt as Vec2, from) ? ([to[0], to[1]] as Vec2) : pt,
+      );
+    }
+  }
+
+  // -- Wall length ------------------------------------------------------------
+
+  get selectedWallLength(): number | null {
+    if (this.selectedKind !== 'wall') return null;
+    const w = this.floor().walls?.[this.selectedWall];
+    if (!w) return null;
+    return Math.hypot(w.end[0] - w.start[0], w.end[1] - w.start[1]);
+  }
+
+  /** Set the selected wall's length, moving its END along the wall direction. */
+  setWallLength(len: number): void {
+    if (this.selectedKind !== 'wall' || !(len > 0)) return;
+    const w = this.floor().walls?.[this.selectedWall];
+    if (!w) return;
+    const dx = w.end[0] - w.start[0];
+    const dz = w.end[1] - w.start[1];
+    const cur = Math.hypot(dx, dz) || 1;
+    w.end = [w.start[0] + (dx / cur) * len, w.start[1] + (dz / cur) * len];
+    this.rebuild();
+    this.reselect();
     this.onChange?.();
   }
 
