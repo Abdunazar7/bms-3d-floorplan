@@ -91,14 +91,16 @@ function buildWall(
   const material = wallMaterial(wall.color);
   // Door/window frames are rendered INTO the wall group so they're owned by the
   // wall (deleted with it), coupled to the opening, and sized to the hole.
-  const doorMat = new THREE.MeshStandardMaterial({ color: 0x9c6b3f, roughness: 0.7 });
+  const doorMat = new THREE.MeshStandardMaterial({ color: 0xb98a52, roughness: 0.6 });
   const glassMat = new THREE.MeshStandardMaterial({
-    color: 0x88c0d0,
+    color: 0x9fd0e0,
     transparent: true,
-    opacity: 0.35,
-    roughness: 0.1,
-    metalness: 0.1,
+    opacity: 0.3,
+    roughness: 0.05,
+    metalness: 0.15,
   });
+  const frameMat = new THREE.MeshStandardMaterial({ color: 0xf2f2f2, roughness: 0.8 });
+  const handleMat = new THREE.MeshStandardMaterial({ color: 0x3a3f47, metalness: 0.6, roughness: 0.3 });
 
   const openings = [...(wall.openings ?? [])].sort((a, b) => a.position - b.position);
 
@@ -118,11 +120,29 @@ function buildWall(
     if (top < height) {
       addWallSpan(group, start, dir, normalAngle, opStart, opEnd, top, height, thickness, material);
     }
-    // Fill the hole with a door leaf / window glass, sized to the opening.
+    // Fill the hole with a framed door leaf / window, sized to the opening.
+    const span = (a: number, b: number, yb: number, yt: number, th: number, mat: THREE.Material) =>
+      addWallSpan(group, start, dir, normalAngle, a, b, yb, yt, th, mat);
+    const fw = 0.06; // frame width
     if (op.kind === 'door') {
-      addWallSpan(group, start, dir, normalAngle, opStart, opEnd, sill, top, 0.05, doorMat);
+      // Jambs + header (white frame), inset wood leaf, and a handle.
+      span(opStart, opStart + fw, sill, top, thickness, frameMat);
+      span(opEnd - fw, opEnd, sill, top, thickness, frameMat);
+      span(opStart, opEnd, top - fw, top, thickness, frameMat);
+      span(opStart + fw, opEnd - fw, sill, top - fw, 0.05, doorMat);
+      const hy = (sill + top) / 2;
+      span(opEnd - 0.22, opEnd - 0.14, hy - 0.06, hy + 0.06, 0.14, handleMat);
     } else {
-      addWallSpan(group, start, dir, normalAngle, opStart, opEnd, sill, top, 0.03, glassMat);
+      // Frame all around + glass + cross mullions.
+      span(opStart, opStart + fw, sill, top, thickness, frameMat);
+      span(opEnd - fw, opEnd, sill, top, thickness, frameMat);
+      span(opStart, opEnd, sill, sill + fw, thickness, frameMat);
+      span(opStart, opEnd, top - fw, top, thickness, frameMat);
+      span(opStart + fw, opEnd - fw, sill + fw, top - fw, 0.03, glassMat);
+      const mid = (opStart + opEnd) / 2;
+      span(mid - 0.025, mid + 0.025, sill + fw, top - fw, 0.05, frameMat); // vertical mullion
+      const ymid = (sill + top) / 2;
+      span(opStart + fw, opEnd - fw, ymid - 0.025, ymid + 0.025, 0.05, frameMat); // horizontal
     }
     cursor = Math.max(cursor, opEnd);
   }

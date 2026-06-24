@@ -472,26 +472,25 @@ export class SceneManager {
    * so you never have to switch to a "View" tool to move the camera. In view
    * mode, the usual controls apply.
    */
-  setDrawMode(drawing: boolean): void {
+  /**
+   * Camera is ALWAYS fully controllable while editing (left-drag orbit, right
+   * pan, wheel zoom, one-finger orbit, two-finger pan/zoom). The editor distin-
+   * guishes a TAP (tool action) from a DRAG (camera), and suspends the camera
+   * only while actually dragging a grabbed object/handle (see setupPointer).
+   * The `drawing` arg is kept for call-site compatibility but no longer
+   * restricts the camera.
+   */
+  setDrawMode(_drawing: boolean): void {
     this.controls.enabled = true;
     this.controls.enableRotate = true;
     this.controls.enableZoom = true;
     this.controls.enablePan = true;
-    if (drawing) {
-      this.controls.mouseButtons = {
-        LEFT: null as any, // left is reserved for the editor tool
-        MIDDLE: THREE.MOUSE.DOLLY,
-        RIGHT: THREE.MOUSE.ROTATE,
-      };
-      this.controls.touches = { ONE: null as any, TWO: THREE.TOUCH.DOLLY_PAN };
-    } else {
-      this.controls.mouseButtons = {
-        LEFT: THREE.MOUSE.ROTATE,
-        MIDDLE: THREE.MOUSE.DOLLY,
-        RIGHT: THREE.MOUSE.PAN,
-      };
-      this.controls.touches = { ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_PAN };
-    }
+    this.controls.mouseButtons = {
+      LEFT: THREE.MOUSE.ROTATE,
+      MIDDLE: THREE.MOUSE.DOLLY,
+      RIGHT: THREE.MOUSE.PAN,
+    };
+    this.controls.touches = { ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_PAN };
   }
 
   /** Raycast a pointer event onto the current ground plane. */

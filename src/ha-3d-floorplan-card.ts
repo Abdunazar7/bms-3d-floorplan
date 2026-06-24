@@ -43,7 +43,6 @@ export class Ha3dFloorplanCard extends LitElement {
   @state() private activeFloorIndex = 0;
   @state() private editing = false;
   @state() private editTool: EditTool = 'wall';
-  @state() private editPoints = 0;
   @state() private editSelectedModel = 'sofa';
   @state() private editSelectedEntity: string | null = null;
   @state() private editSelectedObjModel: string | null = null;
@@ -302,7 +301,6 @@ export class Ha3dFloorplanCard extends LitElement {
     this.editor.onChange = () => {
       const ed = this.editor!;
       this.editTool = ed.tool;
-      this.editPoints = ed.pointCount;
       this.editSelectedModel = ed.selectedModel;
       this.editSelectedEntity = ed.selectedEntity;
       this.editSelectedObjModel = ed.selectedObjectModel;
@@ -329,7 +327,9 @@ export class Ha3dFloorplanCard extends LitElement {
     this.showToast('Edit mode — pick "Draw wall", tap the floor to place points');
   }
 
-  private exitEdit(): void {
+  private async exitEdit(): Promise<void> {
+    // Done = auto-save: no need to press Save separately.
+    if (this.editor) await this.onSavePlan();
     this.editor?.stop();
     this.editor = undefined;
     this.editing = false;
@@ -353,10 +353,6 @@ export class Ha3dFloorplanCard extends LitElement {
     if (i < 0 || i >= this.editor.plan.floors.length) return;
     this.editor.setFloor(i);
     this.activeFloorIndex = i;
-  }
-
-  private onFinishChain(): void {
-    this.editor?.finishChain();
   }
 
   private onUndoPoint(): void {
@@ -501,6 +497,10 @@ export class Ha3dFloorplanCard extends LitElement {
   private onSetWallLength(e: Event): void {
     const v = parseFloat((e.target as HTMLInputElement).value);
     if (!Number.isNaN(v) && v > 0) this.editor?.setWallLength(v);
+  }
+
+  private onDeleteWallOpening(i: number): void {
+    this.editor?.deleteWallOpening(i);
   }
 
   private onAddFloor(): void {
@@ -657,11 +657,10 @@ export class Ha3dFloorplanCard extends LitElement {
             @click=${() => this.onEditTool('window')}>🪟 Window</button>
           <button class="btn ${tool === 'furniture' ? 'active' : ''}" title="Place furniture"
             @click=${() => this.onEditTool('furniture')}>🛋 Furniture</button>
-          <button class="btn ${tool === 'select' ? 'active' : ''}" title="Select / move / bind"
+          <button class="btn ${tool === 'select' ? 'active' : ''}" title="Select / move / bind (camera always works: drag empty = orbit)"
             @click=${() => this.onEditTool('select')}>☝ Select</button>
-          <button class="btn ${tool === 'orbit' ? 'active' : ''}" title="Move camera"
-            @click=${() => this.onEditTool('orbit')}>✋ View</button>
         </div>
+        <span class="hint">Camera always on: drag empty space = orbit · two fingers = pan/zoom · tap = act</span>
 
         <div class="panel-group">Building Parts — drop a room</div>
         <div class="toolrow">
@@ -695,13 +694,11 @@ export class Ha3dFloorplanCard extends LitElement {
 
         ${tool === 'wall'
           ? html`<div class="toolrow">
-              <button class="btn" ?disabled=${this.editPoints < 1}
-                title="End this run (start a new wall elsewhere)" @click=${this.onFinishChain}>⤓ End run</button>
-              <button class="btn" ?disabled=${this.editPoints < 1}
-                title="Undo last wall" @click=${this.onUndoPoint}>⤺ Undo</button>
+              <button class="btn" title="Remove the last wall" @click=${this.onUndoPoint}>⤺ Undo wall</button>
               <button class="btn ${this.editSnap ? 'active' : ''}"
                 title="Snap assist: parallel/perpendicular angles, equal lengths, alignment"
                 @click=${this.onToggleSnap}>🧲 Snap</button>
+              <span class="hint">tap 2 points = 1 wall (auto)</span>
             </div>`
           : nothing}
 
@@ -760,7 +757,17 @@ export class Ha3dFloorplanCard extends LitElement {
                     @change=${this.onSetWallLength}
                   />
                   <span class="hint">or drag the wall's end point</span>
-                </div>`
+                </div>
+                ${this.editor && this.editor.selectedWallOpenings.length
+                  ? html`<div class="panel-group">Openings (tap 🗑 to remove)</div>
+                      ${this.editor.selectedWallOpenings.map(
+                        (o, i) => html`<div class="toolrow">
+                          <span class="hint">${o.kind} @ ${o.position.toFixed(1)}m · ${o.width.toFixed(1)}m</span>
+                          <button class="btn" title="Delete this opening"
+                            @click=${() => this.onDeleteWallOpening(i)}>🗑</button>
+                        </div>`,
+                      )}`
+                  : nothing}`
               : nothing}
             ${kind === 'room' && this.editRoom?.shape
               ? html`<div class="toolrow">
@@ -836,7 +843,7 @@ export class Ha3dFloorplanCard extends LitElement {
           ? html`<span class="hint">tap a wall to add a ${tool}</span>`
           : nothing}
         ${tool === 'wall'
-          ? html`<span class="hint">2 taps = 1 wall · 🧲 snaps parallel/right-angle + equal length (green = aided) · right-drag / two-finger to orbit</span>`
+          ? html`<span class="hint">tap 2 points = 1 wall · 🧲 snaps parallel/right-angle + equal length · drag empty space = orbit</span>`
           : nothing}
 
         <div class="panel-section">
@@ -896,8 +903,8 @@ export class Ha3dFloorplanCard extends LitElement {
             ⌂ Reset
           </button>
           ${this.editing
-            ? html`<button class="btn primary" title="Exit editor" @click=${this.exitEdit}>
-                ✓ Done
+            ? html`<button class="btn primary" title="Save & exit editor" @click=${this.exitEdit}>
+                ✓ Done &amp; Save
               </button>`
             : html`<button class="btn" title="Edit floor plan" @click=${this.enterEdit}>
                 ✎ Edit

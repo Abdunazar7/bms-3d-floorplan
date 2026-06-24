@@ -17,7 +17,7 @@ import { defaultY } from '../furniture/library';
 import { TextLabel } from '../scene/labels';
 import { isShapeRoom, roomPolygon } from '../scene/room-shapes';
 
-export type EditTool = 'orbit' | 'wall' | 'furniture' | 'select' | 'door' | 'window';
+export type EditTool = 'wall' | 'furniture' | 'select' | 'door' | 'window';
 
 const SNAP = 0.1; // grid snap, meters
 const CLOSE_DIST = 0.4; // distance to first point that closes a room
@@ -72,8 +72,9 @@ export class EditorController {
   snapEnabled = true;
   private snapInfo: SnapResult | null = null;
   private measureLabel?: TextLabel;
-  private dragMode: 'furniture' | 'endpoint' | 'gizmo' | null = null;
+  private dragMode: 'furniture' | 'endpoint' | 'gizmo' | 'wallmove' | null = null;
   private dragVertex: Vec2 | null = null;
+  private wallDrag0: { s: Vec2; e: Vec2 } | null = null;
   private gizmoHandle: string | null = null;
   private gizmoGrab: Vec2 = [0, 0];
   private gizmoRoom0 = { x: 0, z: 0, width: 3, depth: 3, rotation: 0 };
@@ -187,7 +188,7 @@ export class EditorController {
       this.selectRoom(r.index);
       return this.beginGizmo('move', e);
     }
-    // 4) Wall endpoint reshape.
+    // 4) Wall endpoint reshape (near a vertex), else 5) move the whole wall.
     const gp = this.sm.groundIntersect(e);
     if (gp) {
       const v = this.nearestEndpoint(gp.x, gp.z, 0.45);
@@ -198,6 +199,15 @@ export class EditorController {
           (w) => sameVertex(w.start as Vec2, v) || sameVertex(w.end as Vec2, v),
         );
         if (wi >= 0) this.selectWall(wi);
+        return true;
+      }
+      const hw = this.sm.pickWall(e);
+      const w = hw ? this.floor().walls?.[hw.index] : null;
+      if (hw && w) {
+        this.selectWall(hw.index);
+        this.dragMode = 'wallmove';
+        this.gizmoGrab = [gp.x, gp.z];
+        this.wallDrag0 = { s: [w.start[0], w.start[1]], e: [w.end[0], w.end[1]] };
         return true;
       }
     }
@@ -221,6 +231,16 @@ export class EditorController {
       this.dragVertex = nv;
       this.rebuild();
       this.reselect();
+    } else if (this.dragMode === 'wallmove' && this.selectedWall >= 0 && this.wallDrag0) {
+      const w = this.floor().walls?.[this.selectedWall];
+      if (w) {
+        const dx = snap(p.x - this.gizmoGrab[0]);
+        const dz = snap(p.z - this.gizmoGrab[1]);
+        w.start = [this.wallDrag0.s[0] + dx, this.wallDrag0.s[1] + dz];
+        w.end = [this.wallDrag0.e[0] + dx, this.wallDrag0.e[1] + dz];
+        this.rebuild();
+        this.reselect();
+      }
     }
   }
 
@@ -233,6 +253,7 @@ export class EditorController {
     this.dragMode = null;
     this.dragVertex = null;
     this.gizmoHandle = null;
+    this.wallDrag0 = null;
     this.onChange?.();
   }
 
@@ -273,6 +294,28 @@ export class EditorController {
     return Math.hypot(w.end[0] - w.start[0], w.end[1] - w.start[1]);
   }
 
+  /** Openings (doors/windows) on the selected wall — for the property list. */
+  get selectedWallOpenings(): { kind: string; position: number; width: number }[] {
+    if (this.selectedKind !== 'wall') return [];
+    return (this.floor().walls?.[this.selectedWall]?.openings ?? []).map((o) => ({
+      kind: o.kind,
+      position: o.position,
+      width: o.width,
+    }));
+  }
+
+  /** Delete one opening from the selected wall (doors/windows have no 3D click
+   *  target, so they're removed from the wall's opening list). */
+  deleteWallOpening(index: number): void {
+    if (this.selectedKind !== 'wall') return;
+    const w = this.floor().walls?.[this.selectedWall];
+    if (!w?.openings) return;
+    w.openings.splice(index, 1);
+    this.rebuild();
+    this.reselect();
+    this.onChange?.();
+  }
+
   /** Set the selected wall's length, moving its END along the wall direction. */
   setWallLength(len: number): void {
     if (this.selectedKind !== 'wall' || !(len > 0)) return;
@@ -289,9 +332,9 @@ export class EditorController {
 
   setTool(t: EditTool): void {
     this.tool = t;
-    // Orbit tool: left/one-finger orbits. Drawing tools: left/one-finger acts,
-    // right mouse / two fingers always orbit + zoom (no tool-switch needed).
-    this.sm.setDrawMode(t !== 'orbit');
+    // Camera is always on; a TAP performs the tool, a DRAG moves the camera
+    // (or a grabbed object). No separate "View" tool needed.
+    this.sm.setDrawMode(true);
     if (t !== 'wall') this.cancelChain();
     if (t !== 'select') this.clearSelection();
     this.onChange?.();
@@ -339,15 +382,6 @@ export class EditorController {
     });
     this.rebuild();
     this.selectFurniture(id);
-  }
-
-  private moveSelected(p: THREE.Vector3): void {
-    const f = this.floor().furniture?.find((x) => x.id === this.selectedId);
-    if (!f) return;
-    f.position = [snap(p.x), f.position[1], snap(p.z)];
-    this.rebuild();
-    this.reselect();
-    this.onChange?.();
   }
 
   selectFurniture(id: string | null): void {
@@ -689,7 +723,7 @@ export class EditorController {
       click: (p, e) => this.onClick(p, e),
       move: (p) => this.onMove(p),
     });
-    this.sm.setDrawMode(this.tool !== 'orbit');
+    this.sm.setDrawMode(true); // camera always on
   }
 
   private onClick(p: THREE.Vector3, e?: PointerEvent): void {
@@ -702,6 +736,7 @@ export class EditorController {
       return;
     }
     if (this.tool === 'select') {
+      // Tap selects (drag is handled separately: camera, or move a grabbed item).
       const hitF = e ? this.sm.pickFurniture(e) : null;
       if (hitF) {
         this.selectFurniture(hitF.id);
@@ -712,12 +747,6 @@ export class EditorController {
         this.selectWall(hitW.index);
         return;
       }
-      // A selected furniture piece: tap the floor to move it.
-      if (this.selectedKind === 'furniture' && this.selectedId) {
-        this.moveSelected(p);
-        return;
-      }
-      // Otherwise tapping the floor selects the room (e.g. to recolor it).
       const hitR = e ? this.sm.pickRoom(e) : null;
       if (hitR) this.selectRoom(hitR.index);
       else this.clearSelection();
@@ -726,7 +755,7 @@ export class EditorController {
     if (this.tool !== 'wall') return;
     const { pt } = this.snapPoint(p.x, p.z);
 
-    // First click of a run: just drop the start point.
+    // First tap: drop the start point.
     if (this.chain.length === 0) {
       this.chain = [pt];
       this.renderPreview();
@@ -734,29 +763,12 @@ export class EditorController {
       return;
     }
 
+    // Second tap: commit the wall and auto-end the run (each wall = 2 taps).
     const start = this.chain[0];
-    const last = this.chain[this.chain.length - 1];
-
-    // Returning to the start closes the loop into a room.
-    if (this.chain.length >= 3 && Math.hypot(pt[0] - start[0], pt[1] - start[1]) < CLOSE_DIST) {
-      this.commitWall(last, start);
-      this.addRoom(this.chain);
-      this.chain = [];
-      this.cursor = null;
-      this.rebuild();
-      this.onChange?.();
-      return;
-    }
-
-    // Ignore a duplicate click on the same point.
-    if (last[0] === pt[0] && last[1] === pt[1]) return;
-
-    // Two points → a wall appears immediately (no Finish needed); the run
-    // continues from the new point so you can keep adding connected walls.
-    this.commitWall(last, pt);
-    this.chain.push(pt);
+    if (start[0] === pt[0] && start[1] === pt[1]) return; // ignore same point
+    this.commitWall(start, pt);
+    this.cancelChain(); // auto "end run" — next tap starts a fresh wall
     this.rebuild();
-    this.renderPreview();
     this.onChange?.();
   }
 
@@ -772,12 +784,6 @@ export class EditorController {
     const fl = this.floor();
     if (!fl.walls) fl.walls = [];
     fl.walls.push({ start: [a[0], a[1]], end: [b[0], b[1]] });
-  }
-
-  private addRoom(points: Vec2[]): void {
-    const fl = this.floor();
-    if (!fl.rooms) fl.rooms = [];
-    fl.rooms.push({ polygon: points.map((p) => [p[0], p[1]] as Vec2) });
   }
 
   /**
@@ -922,17 +928,12 @@ export class EditorController {
 
   /** Undo: remove the last committed wall of the current run (and its point). */
   undoPoint(): void {
-    if (this.chain.length >= 2) {
-      this.floor().walls?.pop(); // the last wall belongs to this run
-      this.chain.pop();
+    // If a wall start is pending, cancel it; otherwise remove the last wall.
+    if (this.chain.length >= 1) {
+      this.cancelChain();
+    } else if ((this.floor().walls?.length ?? 0) > 0) {
+      this.floor().walls!.pop();
       this.rebuild();
-      this.renderPreview();
-    } else if (this.chain.length === 1) {
-      this.chain = [];
-      this.cursor = null;
-      this.snapInfo = null;
-      if (this.measureLabel) this.measureLabel.sprite.visible = false;
-      this.sm.clearPreview();
     }
     this.onChange?.();
   }
