@@ -493,6 +493,24 @@ export class SceneManager {
     this.controls.touches = { ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_PAN };
   }
 
+  /**
+   * When a movable object is selected, reserve LEFT mouse / one-finger for
+   * dragging that object (so it moves instead of orbiting the camera). Camera
+   * is still available via right-drag / two fingers.
+   */
+  setLeftReserved(reserved: boolean): void {
+    if (reserved) {
+      this.controls.mouseButtons = {
+        LEFT: null as any,
+        MIDDLE: THREE.MOUSE.DOLLY,
+        RIGHT: THREE.MOUSE.ROTATE,
+      };
+      this.controls.touches = { ONE: null as any, TWO: THREE.TOUCH.DOLLY_PAN };
+    } else {
+      this.setDrawMode(true);
+    }
+  }
+
   /** Raycast a pointer event onto the current ground plane. */
   groundIntersect(e: PointerEvent): THREE.Vector3 | null {
     const rect = this.renderer.domElement.getBoundingClientRect();

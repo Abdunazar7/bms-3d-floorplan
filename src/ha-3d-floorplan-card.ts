@@ -503,6 +503,10 @@ export class Ha3dFloorplanCard extends LitElement {
     this.editor?.deleteWallOpening(i);
   }
 
+  private onDeleteRoomOpening(i: number): void {
+    this.editor?.deleteRoomOpening(i);
+  }
+
   private onAddFloor(): void {
     this.editor?.addFloor();
   }
@@ -795,7 +799,17 @@ export class Ha3dFloorplanCard extends LitElement {
                       .value=${Math.round(this.editRoom.rotation ?? 0).toString()}
                       @change=${(e: Event) => this.onSetRoomField('rotation', e)} />
                   </div>
-                  <span class="hint">drag body=move · ring=rotate · corners=resize · Shift=no snap</span>`
+                  <span class="hint">drag body=move · ring=rotate · corners=resize · Shift=no snap</span>
+                  ${this.editor && this.editor.selectedRoomOpenings.length
+                    ? html`<div class="panel-group">Openings (tap 🗑 to remove)</div>
+                        ${this.editor.selectedRoomOpenings.map(
+                          (o, i) => html`<div class="toolrow">
+                            <span class="hint">${o.kind} · ${o.width.toFixed(1)}m</span>
+                            <button class="btn" title="Delete this opening"
+                              @click=${() => this.onDeleteRoomOpening(i)}>🗑</button>
+                          </div>`,
+                        )}`
+                    : nothing}`
               : nothing}
             ${isFurniture && this.hass
               ? (() => {

@@ -75,6 +75,7 @@ export class EditorController {
   private dragMode: 'furniture' | 'endpoint' | 'gizmo' | 'wallmove' | null = null;
   private dragVertex: Vec2 | null = null;
   private wallDrag0: { s: Vec2; e: Vec2 } | null = null;
+  private furnDrag0: Vec2 = [0, 0];
   private gizmoHandle: string | null = null;
   private gizmoGrab: Vec2 = [0, 0];
   private gizmoRoom0 = { x: 0, z: 0, width: 3, depth: 3, rotation: 0 };
@@ -175,12 +176,11 @@ export class EditorController {
       const handle = this.sm.pickGizmo(e);
       if (handle) return this.beginGizmo(handle, e);
     }
-    // 2) Furniture grab.
+    // 2) Furniture grab → select + move (relative).
     const f = this.sm.pickFurniture(e);
     if (f) {
       this.selectFurniture(f.id);
-      this.dragMode = 'furniture';
-      return true;
+      return this.beginFurnitureMove(e);
     }
     // 3) Shape-room body → select + move.
     const r = this.sm.pickRoom(e);
@@ -210,6 +210,34 @@ export class EditorController {
         this.wallDrag0 = { s: [w.start[0], w.start[1]], e: [w.end[0], w.end[1]] };
         return true;
       }
+      // 6) Nothing grabbed, but a movable object is already selected → move it
+      //    (drag from anywhere; camera is reserved while a movable is selected).
+      if (this.isMovableSelected()) return this.beginMoveSelected(e, gp);
+    }
+    return false;
+  }
+
+  private beginFurnitureMove(e: PointerEvent): boolean {
+    const gp = this.sm.groundIntersect(e);
+    const fobj = this.selectedId ? this.floor().furniture?.find((x) => x.id === this.selectedId) : null;
+    if (!gp || !fobj) return false;
+    this.dragMode = 'furniture';
+    this.gizmoGrab = [gp.x, gp.z];
+    this.furnDrag0 = [fobj.position[0], fobj.position[2]];
+    return true;
+  }
+
+  private beginMoveSelected(e: PointerEvent, gp: THREE.Vector3): boolean {
+    if (this.selectedKind === 'furniture') return this.beginFurnitureMove(e);
+    if (this.selectedKind === 'room') return this.beginGizmo('move', e);
+    if (this.selectedKind === 'wall' && this.selectedWall >= 0) {
+      const w = this.floor().walls?.[this.selectedWall];
+      if (w) {
+        this.dragMode = 'wallmove';
+        this.gizmoGrab = [gp.x, gp.z];
+        this.wallDrag0 = { s: [w.start[0], w.start[1]], e: [w.end[0], w.end[1]] };
+        return true;
+      }
     }
     return false;
   }
@@ -220,8 +248,8 @@ export class EditorController {
     } else if (this.dragMode === 'furniture' && this.selectedId) {
       const obj = this.sm.getFurnitureObject(this.selectedId);
       if (obj) {
-        obj.position.x = snap(p.x);
-        obj.position.z = snap(p.z);
+        obj.position.x = snap(this.furnDrag0[0] + (p.x - this.gizmoGrab[0]));
+        obj.position.z = snap(this.furnDrag0[1] + (p.z - this.gizmoGrab[1]));
         this.sm.refreshSelection();
       }
     } else if (this.dragMode === 'endpoint' && this.dragVertex) {
@@ -316,6 +344,25 @@ export class EditorController {
     this.onChange?.();
   }
 
+  /** Openings on the selected shape room (for the property list). */
+  get selectedRoomOpenings(): { kind: string; position: number; width: number }[] {
+    if (this.selectedKind !== 'room') return [];
+    return (this.currentRoom()?.openings ?? []).map((o) => ({
+      kind: o.kind,
+      position: o.position,
+      width: o.width,
+    }));
+  }
+
+  deleteRoomOpening(index: number): void {
+    const room = this.currentRoom();
+    if (!room?.openings) return;
+    room.openings.splice(index, 1);
+    this.rebuild();
+    this.reselect();
+    this.onChange?.();
+  }
+
   /** Set the selected wall's length, moving its END along the wall direction. */
   setWallLength(len: number): void {
     if (this.selectedKind !== 'wall' || !(len > 0)) return;
@@ -332,11 +379,11 @@ export class EditorController {
 
   setTool(t: EditTool): void {
     this.tool = t;
-    // Camera is always on; a TAP performs the tool, a DRAG moves the camera
-    // (or a grabbed object). No separate "View" tool needed.
-    this.sm.setDrawMode(true);
+    // Camera is on unless a movable object is selected (then left/one-finger
+    // moves it). A TAP always performs the tool. No separate "View" tool.
     if (t !== 'wall') this.cancelChain();
     if (t !== 'select') this.clearSelection();
+    this.applyReserve();
     this.onChange?.();
   }
 
@@ -390,6 +437,7 @@ export class EditorController {
     this.selectedWall = -1;
     this.selectedRoom = -1;
     this.sm.setSelection(id ? this.sm.getFurnitureObject(id) ?? null : null);
+    this.applyReserve();
     this.onChange?.();
   }
 
@@ -399,6 +447,7 @@ export class EditorController {
     this.selectedId = null;
     this.selectedRoom = -1;
     this.sm.setSelection(this.sm.getWallObject(index) ?? null);
+    this.applyReserve();
     this.onChange?.();
   }
 
@@ -409,6 +458,7 @@ export class EditorController {
     this.selectedWall = -1;
     this.sm.setSelection(this.sm.getRoomObject(index) ?? null);
     this.buildGizmo();
+    this.applyReserve();
     this.onChange?.();
   }
 
@@ -419,7 +469,22 @@ export class EditorController {
     this.selectedRoom = -1;
     this.sm.setSelection(null);
     this.sm.clearGizmo();
+    this.applyReserve();
     this.onChange?.();
+  }
+
+  /** A movable selection reserves left/one-finger for dragging (camera off). */
+  private isMovableSelected(): boolean {
+    if (this.selectedKind === 'furniture' || this.selectedKind === 'wall') return true;
+    if (this.selectedKind === 'room') {
+      const r = this.currentRoom();
+      return !!r && isShapeRoom(r);
+    }
+    return false;
+  }
+
+  private applyReserve(): void {
+    this.sm.setLeftReserved(this.isMovableSelected());
   }
 
   /** Re-apply the selection highlight after a rebuild (object instances change). */
@@ -723,7 +788,7 @@ export class EditorController {
       click: (p, e) => this.onClick(p, e),
       move: (p) => this.onMove(p),
     });
-    this.sm.setDrawMode(true); // camera always on
+    this.applyReserve(); // camera on, unless a movable object is selected
   }
 
   private onClick(p: THREE.Vector3, e?: PointerEvent): void {
@@ -885,43 +950,63 @@ export class EditorController {
   /** Add a door/window opening to the wall nearest the tapped point. */
   private addOpening(p: THREE.Vector3, kind: 'door' | 'window'): void {
     const fl = this.floor();
-    let best: WallDef | null = null;
+    const width = kind === 'door' ? 0.9 : 1.0;
+    // Nearest segment among BOTH explicit walls and shape-room perimeter edges.
     let bd = 0.6;
-    let along = 0;
-    let wallLen = 0;
-    for (const w of fl.walls ?? []) {
-      const ax = w.start[0], az = w.start[1], bx = w.end[0], bz = w.end[1];
+    type Hit =
+      | { type: 'wall'; wall: WallDef; along: number; len: number }
+      | { type: 'room'; room: RoomDef; edge: number; along: number; len: number };
+    let best: Hit | null = null;
+
+    const consider = (
+      ax: number, az: number, bx: number, bz: number,
+      make: (along: number, len: number) => Hit,
+    ) => {
       const dx = bx - ax, dz = bz - az;
       const len2 = dx * dx + dz * dz;
-      if (len2 < 1e-6) continue;
+      if (len2 < 1e-6) return;
       let t = ((p.x - ax) * dx + (p.z - az) * dz) / len2;
       t = Math.max(0, Math.min(1, t));
       const cx = ax + dx * t, cz = az + dz * t;
       const d = Math.hypot(p.x - cx, p.z - cz);
       if (d < bd) {
         bd = d;
-        best = w;
         const len = Math.sqrt(len2);
-        along = t * len;
-        wallLen = len;
+        best = make(t * len, len);
+      }
+    };
+
+    for (const w of fl.walls ?? []) {
+      consider(w.start[0], w.start[1], w.end[0], w.end[1], (along, len) => ({
+        type: 'wall', wall: w, along, len,
+      }));
+    }
+    for (const room of fl.rooms ?? []) {
+      if (!isShapeRoom(room)) continue;
+      const poly = roomPolygon(room);
+      for (let i = 0; i < poly.length; i++) {
+        const a = poly[i];
+        const b = poly[(i + 1) % poly.length];
+        const edge = i;
+        consider(a[0], a[1], b[0], b[1], (along, len) => ({
+          type: 'room', room, edge, along, len,
+        }));
       }
     }
+
     if (!best) {
-      this.onMessage?.(
-        (this.floor().walls?.length ?? 0) === 0
-          ? 'Draw a wall first, then tap it to add a door/window'
-          : 'Tap closer to a wall',
-      );
+      this.onMessage?.('Tap closer to a wall (or room edge)');
       return;
     }
-    if (!best.openings) best.openings = [];
-    const width = kind === 'door' ? 0.9 : 1.0;
-    const position = Math.max(0, Math.min(wallLen - width, along - width / 2));
-    // Cut the hole AND let buildWall render a fitted door leaf / window glass
-    // into it — the frame is owned by the wall, so it's removed with the wall
-    // and always lines up with the opening (no orphaned floating frames).
-    best.openings.push({ kind, position, width });
-
+    const hit = best as Hit;
+    const position = Math.max(0, Math.min(hit.len - width, hit.along - width / 2));
+    if (hit.type === 'wall') {
+      if (!hit.wall.openings) hit.wall.openings = [];
+      hit.wall.openings.push({ kind, position, width });
+    } else {
+      if (!hit.room.openings) hit.room.openings = [];
+      hit.room.openings.push({ kind, edge: hit.edge, position, width });
+    }
     this.rebuild();
     this.onChange?.();
   }
